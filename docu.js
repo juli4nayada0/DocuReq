@@ -1,1053 +1,469 @@
-/* ======================= DATA LAYER ======================= */
-const DB = {
-  get(key, fallback){ try{ return JSON.parse(localStorage.getItem(key)) ?? fallback; }catch(e){ return fallback; } },
-  set(key, val){ localStorage.setItem(key, JSON.stringify(val)); }
-};
-
-const FEES = {
-  'Form 137':0,
-  'Form 138':0,
-  'Certificate of Graduation / Diploma':0,
-  'Certificate of Good Moral Character':80,
-  'Transcript of Records (TOR)':100,
-  'Certificate of Enrollment / Attendance':60,
-  'Certified True Copy (CTC)':70
-};
-const STATUS_FLOW = ['Pending','Under Review','Approved','Processing','Ready for Pickup','Completed'];
-const STATUS_CLASS = {
-  'Pending':'badge-pending','Under Review':'badge-review','Approved':'badge-approved','Processing':'badge-processing',
-  'Ready for Pickup':'badge-ready','Completed':'badge-completed','Rejected':'badge-rejected'
-};
-
-function normalizePhoneInput(value){
-  return (value || '').replace(/\D/g, '').slice(0, 11);
-}
-
-function formatPhone(value){
-  const digits = normalizePhoneInput(value);
-  if(!digits) return '';
-  if(digits.length <= 4) return digits;
-  if(digits.length <= 7) return `${digits.slice(0,4)} ${digits.slice(4)}`;
-  return `${digits.slice(0,4)} ${digits.slice(4,7)} ${digits.slice(7)}`;
-}
-
-function renderAvatarMarkup(user, size=34){
-  const safeName = (user?.name || 'User').replace(/"/g, '&quot;');
-  if(user?.avatar){
-    return `<div class="avatar" style="width:${size}px;height:${size}px;"><img src="${user.avatar}" alt="${safeName}" /></div>`;
-  }
-  return `<div class="avatar" style="width:${size}px;height:${size}px;">${(user?.name || '?')[0].toUpperCase()}</div>`;
-}
-
-function bindPhoneInput(selector){
-  const input = document.querySelector(selector);
-  if(!input) return;
-  input.setAttribute('inputmode', 'numeric');
-  input.setAttribute('maxlength', '14');
-  input.value = formatPhone(input.value);
-  input.addEventListener('input', ()=>{
-    input.value = formatPhone(input.value);
-  });
-}
-
-function normalizeDocumentNames(){
-  const reqs = DB.get('dt_requests',[]);
-  const aliases = {
-    'Diploma':'Certificate of Graduation / Diploma',
-    'Certificate of Enrollment (COE)':'Certificate of Enrollment / Attendance'
-  };
-  let changed = false;
-  reqs.forEach(r=>{
-    const replacement = aliases[r.document];
-    if(replacement){ r.document = replacement; r.fee = FEES[replacement] || r.fee; changed = true; }
-    if(!r.status){ r.status = 'Pending'; changed = true; }
-    if(!r.paymentStatus){ r.paymentStatus = 'Unpaid'; changed = true; }
-    if(!r.dateRequested){ r.dateRequested = new Date().toISOString().slice(0,10); changed = true; }
-    if(r.document && !r.fee && FEES[r.document]){ r.fee = FEES[r.document]; changed = true; }
-  });
-  if(changed) DB.set('dt_requests', reqs);
-}
-
-function migrateOldEmails(){
-  const emailMap = { 'student@school.com':'student@gmail.com', 'admin@school.com':'admin@gmail.com' };
-  let changed = false;
-
-  const users = DB.get('dt_users', null);
-  if(users){
-    users.forEach(u=>{ if(emailMap[u.email]){ u.email = emailMap[u.email]; changed = true; } });
-    if(changed) DB.set('dt_users', users);
-  }
-
-  const reqs = DB.get('dt_requests', null);
-  if(reqs){
-    let reqsChanged = false;
-    reqs.forEach(r=>{ if(emailMap[r.studentEmail]){ r.studentEmail = emailMap[r.studentEmail]; reqsChanged = true; } });
-    if(reqsChanged) DB.set('dt_requests', reqs);
-  }
-
-  const session = DB.get('dt_session', null);
-  if(session && emailMap[session.email]){ session.email = emailMap[session.email]; DB.set('dt_session', session); }
-  const sessSession = JSON.parse(sessionStorage.getItem('dt_session')||'null');
-  if(sessSession && emailMap[sessSession.email]){
-    sessSession.email = emailMap[sessSession.email];
-    sessionStorage.setItem('dt_session', JSON.stringify(sessSession));
-  }
-}
-
-function seed(){
-  migrateOldEmails();
-  if(!DB.get('dt_users')){
-    DB.set('dt_users',[
-      {name:'Maria Santos', studentId:'2024-00456', email:'student@gmail.com', contact:'09175550123', password:'student123', role:'student'},
-      {name:'Registrar Admin', studentId:'ADMIN-01', email:'admin@gmail.com', contact:'09175550000', password:'admin123', role:'admin'}
-    ]);
-  }
-  if(!DB.get('dt_requests')){
-    const today = new Date();
-    const d = n=>{ const x=new Date(today); x.setDate(x.getDate()+n); return x.toISOString().slice(0,10); };
-    DB.set('dt_requests',[
-      {id:'REQ-10231', studentEmail:'student@gmail.com', studentName:'Maria Santos', document:'Certificate of Enrollment / Attendance',
-        purpose:'Scholarship application', quantity:1, pickupDate:d(-6), remarks:'', fee:60, status:'Completed',
-        paymentStatus:'Paid', paymentMethod:'GCash', paymentRef:'PMT-88213', paymentDate:d(-7), dateRequested:d(-8), pickupSlot:null},
-      {id:'REQ-10255', studentEmail:'student@gmail.com', studentName:'Maria Santos', document:'Transcript of Records (TOR)',
-        purpose:'College application', quantity:2, pickupDate:d(3), remarks:'Please print on security paper.', fee:200, status:'Processing',
-        paymentStatus:'Paid', paymentMethod:'Over the counter', paymentRef:'PMT-88340', paymentDate:d(-1), dateRequested:d(-2), pickupSlot:{date:d(3),time:'10:00 AM – 11:00 AM'}},
-      {id:'REQ-10270', studentEmail:'juan.delacruz@gmail.com', studentName:'Juan Dela Cruz', document:'Certificate of Graduation / Diploma',
-        purpose:'Employment requirement', quantity:1, pickupDate:d(5), remarks:'', fee:150, status:'Pending',
-        paymentStatus:'Unpaid', paymentMethod:'', paymentRef:'', paymentDate:'', dateRequested:d(0), pickupSlot:null},
-      {id:'REQ-10268', studentEmail:'anna.reyes@gmail.com', studentName:'Anna Reyes', document:'Transcript of Records (TOR)',
-        purpose:'Board exam requirement', quantity:1, pickupDate:d(4), remarks:'', fee:100, status:'Under Review',
-        paymentStatus:'Paid', paymentMethod:'GCash', paymentRef:'PMT-88401', paymentDate:d(0), dateRequested:d(-1), pickupSlot:null},
-      {id:'REQ-10260', studentEmail:'carlo.tan@gmail.com', studentName:'Carlo Tan', document:'Certificate of Enrollment / Attendance',
-        purpose:'Visa application', quantity:1, pickupDate:d(2), remarks:'', fee:60, status:'Ready for Pickup',
-        paymentStatus:'Paid', paymentMethod:'GCash', paymentRef:'PMT-88350', paymentDate:d(-2), dateRequested:d(-3), pickupSlot:{date:d(2),time:'1:00 PM – 2:00 PM'}}
-    ]);
-  }
-  normalizeDocumentNames();
-  if(!DB.get('dt_notifications')){
-    DB.set('dt_notifications',[
-      {id:1, title:'Request Approved', desc:'Your Certificate of Enrollment request has been approved.', time:'2 days ago', read:false, type:'approved'},
-      {id:2, title:'Payment Received', desc:'We received your payment of ₱200 for REQ-10255.', time:'1 day ago', read:false, type:'payment'},
-      {id:3, title:'Document Processing', desc:'Your Transcript of Records is now being processed.', time:'6 hours ago', read:false, type:'processing'},
-      {id:4, title:'Document Ready for Pickup', desc:'REQ-10260 is ready for pickup at the Registrar window.', time:'3 hours ago', read:true, type:'ready'},
-      {id:5, title:'Announcement', desc:'The Registrar office will be closed on Aug 25 for a system upgrade.', time:'1 week ago', read:true, type:'announce'}
-    ]);
-  }
-  if(!DB.get('dt_logs')){
-    DB.set('dt_logs',[
-      {user:'Registrar Admin', action:'Approved request', when:'Today, 9:12 AM', desc:'REQ-10268 marked as Under Review'},
-      {user:'Registrar Admin', action:'Updated status', when:'Yesterday, 4:40 PM', desc:'REQ-10255 marked as Processing'},
-      {user:'Maria Santos', action:'Submitted request', when:'Yesterday, 2:05 PM', desc:'Requested Transcript of Records (TOR) x2'},
-      {user:'Registrar Admin', action:'Confirmed payment', when:'2 days ago, 11:20 AM', desc:'PMT-88213 verified for REQ-10231'},
-      {user:'Carlo Tan', action:'Scheduled pickup', when:'3 days ago, 1:30 PM', desc:'Selected pickup slot for REQ-10260'}
-    ]);
-  }
-}
-seed();
-
-/* ======================= SESSION ======================= */
-function getSession(){ return DB.get('dt_session', null) || JSON.parse(sessionStorage.getItem('dt_session')||'null'); }
-function setSession(user, remember){
-  const s = {email:user.email, role:user.role, name:user.name};
-  if(remember){ DB.set('dt_session', s); sessionStorage.removeItem('dt_session'); }
-  else{ sessionStorage.setItem('dt_session', JSON.stringify(s)); localStorage.removeItem('dt_session'); }
-}
-function clearSession(){ localStorage.removeItem('dt_session'); sessionStorage.removeItem('dt_session'); }
-function currentUser(){
-  const s = getSession(); if(!s) return null;
-  return DB.get('dt_users',[]).find(u=>u.email===s.email) || s;
-}
-
-/* ======================= TOAST ======================= */
-function toast(msg){
-  const t = document.getElementById('toast');
-  t.textContent = msg; t.hidden = false;
-  clearTimeout(toast._t);
-  toast._t = setTimeout(()=> t.hidden = true, 2600);
-}
-
-/* ======================= AUTH FLOW ======================= */
-const loginForm = document.getElementById('login-form');
-
-document.getElementById('forgot-link').onclick = e=>{ e.preventDefault(); toast('Password reset link sent (prototype only).'); };
-
-document.querySelectorAll('.pw-toggle').forEach(btn=>{
-  btn.onclick = ()=>{
-    const input = document.getElementById(btn.dataset.target);
-    const show = input.type==='password';
-    input.type = show?'text':'password';
-    btn.textContent = show?'Hide':'Show';
-  };
-});
-
-loginForm.onsubmit = e=>{
-  e.preventDefault();
-  const email = document.getElementById('login-email').value.trim().toLowerCase();
-  const pass = document.getElementById('login-password').value;
-  const remember = document.getElementById('remember-me').checked;
-  const errEl = document.getElementById('login-error');
-  const user = DB.get('dt_users',[]).find(u=>u.email.toLowerCase()===email && u.password===pass);
-  if(!user){ errEl.textContent='Incorrect email or password. Please try again.'; errEl.hidden=false; return; }
-  errEl.hidden=true;
-  setSession(user, remember);
-  enterApp(user);
-};
-
-document.getElementById('logout-btn').onclick = ()=>{
-  clearSession();
-  document.getElementById('app-shell').hidden = true;
-  document.getElementById('auth-screen').hidden = false;
-  loginForm.reset();
-};
-
-/* ======================= APP ENTRY / ROUTING ======================= */
-const STUDENT_NAV = [
-  ['dashboard','🏠','Dashboard'],['request','📝','Request Document'],['myrequests','📄','My Requests'],
-  ['payments','💳','Payments'],['pickup','📅','Pickup Schedule'],['notifications','🔔','Notifications'],
-  ['org','🏛️','Org Chart'],['profile','👤','Profile'],['about','ℹ️','About Us']
+// ===== STATE =====
+let students=[
+{id:1,student_number:'2024-0001',firstname:'Maria',middlename:'Cruz',lastname:'Santos',suffix:'',course:'BSIT',year_level:'3rd',section:'A',gender:'Female',birthdate:'2003-05-12',email:'maria@univ.edu.ph',contact_number:'09171234567',status:'Active'},
+{id:2,student_number:'2024-0002',firstname:'Juan',middlename:'Reyes',lastname:'Dela Cruz',suffix:'',course:'BSCS',year_level:'4th',section:'B',gender:'Male',birthdate:'2002-08-22',email:'juan@univ.edu.ph',contact_number:'09181234567',status:'Active'},
+{id:3,student_number:'2024-0003',firstname:'Ana',middlename:'',lastname:'Reyes',suffix:'',course:'BSA',year_level:'2nd',section:'A',gender:'Female',birthdate:'2004-01-15',email:'ana@univ.edu.ph',contact_number:'09191234567',status:'Active'},
+{id:4,student_number:'2024-0004',firstname:'Pedro',middlename:'Lopez',lastname:'Garcia',suffix:'Jr.',course:'BSBA',year_level:'1st',section:'C',gender:'Male',birthdate:'2005-03-10',email:'pedro@univ.edu.ph',contact_number:'09201234567',status:'Inactive'}
 ];
-const ADMIN_NAV = [
-  ['a-dashboard','🏠','Dashboard'],['a-requests','📄','Document Requests'],['a-students','🎓','Students'],
-  ['a-payments','💳','Payments'],['a-pickup','📅','Pickup Schedule'],['a-reports','📊','Reports & Analytics'],
-  ['a-notifications','🔔','Notifications'],['a-logs','🗒️','Activity Logs'],['a-settings','⚙️','Settings'],['org','🏛️','Org Chart'],['about','ℹ️','About Us']
+let nextStudentId=5;
+
+let docTypes=[{id:1,name:'Transcript of Records',fee:150,days:5,reqs:'Clearance, ID'},{id:2,name:'Certificate of Enrollment',fee:50,days:2,reqs:'ID'},{id:3,name:'Diploma',fee:500,days:15,reqs:'Clearance, ID, Grad Fee'},{id:4,name:'Certificate of Good Moral',fee:75,days:3,reqs:'ID'},{id:5,name:'Honorable Dismissal',fee:200,days:7,reqs:'Clearance, ID'}];
+
+let requests=[
+{id:'REQ-2026-001',student:'Maria Santos',doc:'Transcript of Records',date:'2026-07-28',status:'Ready for Pickup',fee:150,paid:true,history:[{s:'Created',t:'2026-07-28 09:00',by:'Maria Santos'},{s:'Approved',t:'2026-07-28 10:30',by:'Admin'},{s:'Payment Verified',t:'2026-07-28 11:00',by:'Admin'},{s:'Processing',t:'2026-07-28 14:00',by:'Admin'},{s:'Ready for Pickup',t:'2026-07-29 16:00',by:'Admin'}]},
+{id:'REQ-2026-002',student:'Juan Dela Cruz',doc:'Certificate of Enrollment',date:'2026-07-29',status:'Processing',fee:50,paid:true,history:[{s:'Created',t:'2026-07-29 08:00',by:'Juan Dela Cruz'},{s:'Approved',t:'2026-07-29 09:00',by:'Admin'},{s:'Payment Verified',t:'2026-07-29 10:00',by:'Admin'},{s:'Processing',t:'2026-07-29 14:00',by:'Admin'}]},
+{id:'REQ-2026-003',student:'Ana Reyes',doc:'Diploma',date:'2026-07-29',status:'Pending',fee:500,paid:false,history:[{s:'Created',t:'2026-07-29 10:00',by:'Ana Reyes'}]},
+{id:'REQ-2026-004',student:'Pedro Garcia',doc:'Certificate of Good Moral',date:'2026-07-30',status:'Pending',fee:75,paid:false,history:[{s:'Created',t:'2026-07-30 08:00',by:'Pedro Garcia'}]},
+{id:'REQ-2026-005',student:'Maria Santos',doc:'Certificate of Enrollment',date:'2026-07-30',status:'Approved',fee:50,paid:false,history:[{s:'Created',t:'2026-07-30 05:15',by:'Maria Santos'},{s:'Approved',t:'2026-07-30 05:30',by:'Admin'}]}
 ];
 
-let ROLE='student';
-let CURRENT_PAGE = 'dashboard';
+let payments=[
+{id:'PAY-001',request:'REQ-2026-001',student:'Maria Santos',amount:150,ref:'GCash-78291',date:'2026-07-28',status:'Verified'},
+{id:'PAY-002',request:'REQ-2026-002',student:'Juan Dela Cruz',amount:50,ref:'BDO-44521',date:'2026-07-29',status:'Verified'},
+{id:'PAY-003',request:'REQ-2026-003',student:'Ana Reyes',amount:500,ref:'',date:'',status:'Payment Pending'},
+{id:'PAY-004',request:'REQ-2026-005',student:'Maria Santos',amount:50,ref:'',date:'',status:'Payment Pending'}
+];
 
-function syncStudentProfileToRequests(email, user){
-  const reqs = DB.get('dt_requests',[]);
-  let changed = false;
-  reqs.forEach(r=>{
-    if(r.studentEmail === email && r.studentName !== user.name){
-      r.studentName = user.name; changed = true;
-    }
-  });
-  if(changed) DB.set('dt_requests', reqs);
-}
+let schedules=[
+{request:'REQ-2026-001',student:'Maria Santos',doc:'Transcript of Records',date:'2026-07-30',time:'10:00 AM',status:'Ready for Pickup'},
+{request:'REQ-2026-002',student:'Juan Dela Cruz',doc:'Certificate of Enrollment',date:'2026-07-31',time:'2:00 PM',status:'Processing'}
+];
 
-function refreshCurrentView(){
-  const shell = document.getElementById('app-shell');
-  if(shell && shell.hidden) return;
-  if(!CURRENT_PAGE) return;
-  const pageToRender = CURRENT_PAGE || (ROLE==='admin' ? 'a-dashboard' : 'dashboard');
-  const user = currentUser();
-  if(user){
-    document.getElementById('topbar-name').textContent = user.name;
-    document.getElementById('topbar-avatar').innerHTML = renderAvatarMarkup(user, 34);
+let logs=[
+{time:'2026-07-30 05:30',user:'Admin',action:'Approved request REQ-2026-005',type:'approve'},
+{time:'2026-07-30 05:15',user:'Maria Santos',action:'Created request REQ-2026-005',type:'create'},
+{time:'2026-07-29 14:00',user:'Admin',action:'Verified payment PAY-002',type:'verify'},
+{time:'2026-07-29 10:00',user:'Admin',action:'Login',type:'login'},
+{time:'2026-07-28 16:00',user:'Admin',action:'Released REQ-2026-001 to Maria Santos',type:'release'}
+];
+
+let notifications=[
+{id:1,msg:'Request REQ-2026-001 is ready for pickup',time:'2026-07-30 04:00',read:false},
+{id:2,msg:'Payment for REQ-2026-002 has been verified',time:'2026-07-29 14:00',read:false},
+{id:3,msg:'New request REQ-2026-005 submitted',time:'2026-07-30 05:15',read:false},
+{id:4,msg:'Request REQ-2026-003 is pending approval',time:'2026-07-29 10:00',read:true},
+{id:5,msg:'System maintenance scheduled for Aug 1',time:'2026-07-28 09:00',read:true}
+];
+
+let currentRole='',currentPage='dashboard';
+let reqSearch='',reqFilter='All',reqSort='date-desc',reqPageNum=1;
+let stuSearch='',stuFilterCourse='All',stuFilterYear='All',stuFilterSection='All',stuPageNum=1;
+const PER_PAGE=5;const STU_PER_PAGE=10;
+let nextReqNum=6,nextPayNum=5,nextNotifId=6;
+
+// ===== MOBILE MENU =====
+function toggleMobileMenu(){
+  const sidebar=document.getElementById('sidebar');
+  const backdrop=document.getElementById('mobile-menu-backdrop');
+  const button=document.getElementById('mobile-menu-toggle');
+  const open=sidebar.classList.toggle('open');
+  backdrop.classList.toggle('show',open);
+  document.body.classList.toggle('menu-open',open);
+  if(button){
+    button.setAttribute('aria-expanded',open?'true':'false');
+    button.innerHTML=open?'<i class="fas fa-times"></i>':'<i class="fas fa-bars"></i>';
   }
-  navigate(pageToRender);
 }
-
-function enterApp(user){
-  document.getElementById('auth-screen').hidden = true;
-  document.getElementById('app-shell').hidden = false;
-  ROLE = user.role;
-  document.getElementById('topbar-avatar').innerHTML = renderAvatarMarkup(user, 34);
-  document.getElementById('topbar-name').textContent = user.name;
-  document.getElementById('topbar-role').textContent = ROLE==='admin' ? 'Registrar Admin' : 'Student';
-  buildSidebar();
-  navigate(ROLE==='admin' ? 'a-dashboard' : 'dashboard');
-}
-
-function buildSidebar(){
-  const nav = document.getElementById('sidebar-nav');
-  const items = ROLE==='admin' ? ADMIN_NAV : STUDENT_NAV;
-  nav.innerHTML = items.map(([key,icon,label])=>
-    `<button class="nav-item" data-page="${key}"><span>${icon}</span><span>${label}</span></button>`
-  ).join('');
-  nav.querySelectorAll('.nav-item').forEach(btn=> btn.onclick = ()=> navigate(btn.dataset.page));
-}
-
-function navigate(page){
-  CURRENT_PAGE = page;
-  document.querySelectorAll('.nav-item').forEach(b=> b.classList.toggle('active', b.dataset.page===page));
-  document.querySelector('.sidebar')?.classList.remove('open');
-  const user = currentUser();
-  if(user && document.getElementById('topbar-avatar')){
-    document.getElementById('topbar-avatar').innerHTML = renderAvatarMarkup(user, 34);
-    document.getElementById('topbar-name').textContent = user.name;
+function closeMobileMenu(){
+  const sidebar=document.getElementById('sidebar');
+  const backdrop=document.getElementById('mobile-menu-backdrop');
+  const button=document.getElementById('mobile-menu-toggle');
+  if(!sidebar) return;
+  sidebar.classList.remove('open');
+  if(backdrop) backdrop.classList.remove('show');
+  document.body.classList.remove('menu-open');
+  if(button){
+    button.setAttribute('aria-expanded','false');
+    button.innerHTML='<i class="fas fa-bars"></i>';
   }
-  const titles = {
-    dashboard:'Dashboard', request:'Request Document', myrequests:'My Requests', payments:'Payments',
-      pickup:'Pickup Schedule', notifications:'Notification Center', profile:'My Profile', about:'About Us', org:'Organizational Chart',
-    'a-dashboard':'Admin Dashboard', 'a-requests':'Document Requests', 'a-students':'Students',
-    'a-payments':'Payments', 'a-pickup':'Pickup Schedule', 'a-reports':'Reports & Analytics',
-      'a-notifications':'Notifications', 'a-logs':'Activity Logs', 'a-settings':'Settings', 'org':'Organizational Chart'
-  };
-  document.getElementById('page-title').textContent = titles[page] || 'Dashboard';
-  const renderers = {
-    dashboard:renderStudentDashboard, request:renderRequestForm, myrequests:renderMyRequests,
-      payments:renderPayments, pickup:renderPickup, notifications:renderNotifications, profile:renderProfile, about:renderAboutUs, org:renderOrgChart,
-    'a-dashboard':renderAdminDashboard, 'a-requests':renderAdminRequests, 'a-students':renderAdminStudents,
-    'a-payments':renderAdminPayments, 'a-pickup':renderAdminPickup, 'a-reports':renderAdminReports,
-    'a-notifications':renderNotifications, 'a-logs':renderAdminLogs, 'a-settings':renderAdminSettings
-  };
-  (renderers[page]||renderStudentDashboard)();
-  updateBellDot();
 }
+window.addEventListener('resize',()=>{if(window.innerWidth>768) closeMobileMenu();});
+document.addEventListener('keydown',e=>{if(e.key==='Escape') closeMobileMenu();});
 
-document.getElementById('sidebar-toggle').onclick = ()=> document.querySelector('.sidebar').classList.toggle('open');
-
-/* ======================= HELPERS ======================= */
-const $ = sel => document.querySelector(sel);
-const page = () => document.getElementById('page-content');
-function myRequests(){ const u=currentUser(); return DB.get('dt_requests',[]).filter(r=>r.studentEmail===u.email); }
-function fmtMoney(n){
-  const value = Number(n) || 0;
-  return '₱'+value.toLocaleString();
-}
-function feeLabel(amount, each=false){
-  if(amount === 0) return '<strong>Free</strong>';
-  return `<strong>${fmtMoney(amount)}${each ? ' each' : ''}</strong>`;
-}
-function fmtDate(s){ if(!s) return '—'; const d=new Date(s+'T00:00:00'); return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }
-function badge(status, extraClass){ return `<span class="badge ${STATUS_CLASS[status]||''} ${extraClass||''}">${status}</span>`; }
-function updateBellDot(){
-  const unread = DB.get('dt_notifications',[]).some(n=>!n.read);
-  document.getElementById('bell-dot').hidden = !unread;
-}
-document.getElementById('bell-btn').onclick = ()=> navigate(ROLE==='admin' ? 'a-notifications' : 'notifications');
-
-window.addEventListener('storage', (event)=>{
-  if(!event.key || !['dt_users','dt_requests','dt_session'].includes(event.key)) return;
-  const shell = document.getElementById('app-shell');
-  if(shell && !shell.hidden) refreshCurrentView();
+document.addEventListener('click',function(e){
+  const link=e.target.closest('#sidebar-nav a');
+  if(link && window.innerWidth<=768) closeMobileMenu();
 });
-window.addEventListener('dt-profile-updated', refreshCurrentView);
 
-function openModal(html){
-  document.getElementById('modal-box').innerHTML = html;
-  document.getElementById('modal-backdrop').hidden = false;
+// ===== AUTH =====
+const CREDENTIALS={admin:{password:'123',role:'admin'},student:{password:'123',role:'student'}};
+function handleLogin(){const u=document.getElementById('login-user').value.trim(),p=document.getElementById('login-pass').value,cred=CREDENTIALS[u];if(cred&&cred.password===p){currentRole=cred.role;sessionStorage.setItem('drrts_role',currentRole);document.getElementById('login-error').classList.add('hidden');showApp()}else{document.getElementById('login-error').classList.remove('hidden')}}
+function handleLogout(){sessionStorage.removeItem('drrts_role');currentRole='';currentPage='dashboard';document.getElementById('app-container').style.display='none';document.getElementById('login-screen').style.display='flex';document.getElementById('login-user').value='';document.getElementById('login-pass').value=''}
+function showApp(){document.getElementById('login-screen').style.display='none';document.getElementById('app-container').style.display='block';document.getElementById('user-avatar').textContent=currentRole==='admin'?'AD':'MS';buildNav();renderPage()}
+function buildNav(){
+const adminNav=[{page:'dashboard',icon:'fa-tachometer-alt',label:'Dashboard'},{page:'requests',icon:'fa-file-alt',label:'Requests'},{page:'students',icon:'fa-users',label:'Students'},{page:'payments',icon:'fa-credit-card',label:'Payments'},{page:'schedules',icon:'fa-calendar-alt',label:'Schedules'},{page:'doctypes',icon:'fa-folder-open',label:'Document Types'},{page:'notifications',icon:'fa-bell',label:'Notifications'},{page:'reports',icon:'fa-chart-bar',label:'Reports'}];
+const studentNav=[{page:'dashboard',icon:'fa-tachometer-alt',label:'Dashboard'},{page:'requests',icon:'fa-file-alt',label:'My Requests'},{page:'payments',icon:'fa-credit-card',label:'Payments'},{page:'schedules',icon:'fa-calendar-alt',label:'Schedule'},{page:'notifications',icon:'fa-bell',label:'Notifications'},{page:'doctypes',icon:'fa-folder-open',label:'Document Types'}];
+const items=currentRole==='admin'?adminNav:studentNav;
+document.getElementById('sidebar-nav').innerHTML=items.map(i=>`<a href="#" data-page="${i.page}" class="${i.page===currentPage?'active':''}"><i class="fas ${i.icon} w-5"></i>${i.label}</a>`).join('');
+document.querySelectorAll('#sidebar-nav a').forEach(a=>{a.addEventListener('click',e=>{e.preventDefault();currentPage=a.dataset.page;activateNav(currentPage);renderPage();document.getElementById('sidebar').classList.remove('open')})});
 }
-document.getElementById('modal-backdrop').addEventListener('click', e=>{
-  if(e.target.id==='modal-backdrop') closeModal();
-});
-function closeModal(){ document.getElementById('modal-backdrop').hidden = true; }
+(function(){const saved=sessionStorage.getItem('drrts_role');if(saved){currentRole=saved;showApp()}})();
 
-/* ======================= STUDENT: DASHBOARD ======================= */
-function renderStudentDashboard(){
-  const u = currentUser();
-  const reqs = myRequests();
-  const pending = reqs.filter(r=>!['Completed','Rejected'].includes(r.status)).length;
-  const ready = reqs.filter(r=>r.status==='Ready for Pickup').length;
-  const completed = reqs.filter(r=>r.status==='Completed').length;
-  const recent = [...reqs].sort((a,b)=> (b.dateRequested || '').localeCompare(a.dateRequested || '')).slice(0,4);
+// ===== UTILITIES =====
+function now(){return new Date().toISOString().slice(0,16).replace('T',' ')}
+function sanitize(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
+function getFullName(s){return [s.firstname,s.middlename,s.lastname,s.suffix].filter(Boolean).join(' ')}
+function badge(s){const m={'Pending':'badge-pending','Approved':'badge-approved','Rejected':'badge-rejected','Cancelled':'badge-cancelled','Processing':'badge-processing','Ready for Pickup':'badge-ready','Completed':'badge-completed','Released':'badge-released','Payment Pending':'badge-payment','Verified':'badge-verified','Pending Verification':'badge-pending-verify'};return `<span class="badge ${m[s]||'badge-pending'}">${sanitize(s)}</span>`}
+function showToast(msg,type='success'){const t=document.getElementById('toast');t.textContent=msg;t.className='toast toast-'+type;t.style.display='block';setTimeout(()=>t.style.display='none',3500)}
+function openModal(html){document.getElementById('modal-content').innerHTML=html;document.getElementById('modal').classList.add('show')}
+function closeModal(){document.getElementById('modal').classList.remove('show')}
+document.getElementById('modal').addEventListener('click',e=>{if(e.target.id==='modal')closeModal()});
+function addLog(action,type,user){logs.unshift({time:now(),user:user||'Admin',action,type})}
+function addNotif(msg){notifications.unshift({id:nextNotifId++,msg,time:now(),read:false});updateNotifBadge()}
+function updateNotifBadge(){const c=notifications.filter(n=>!n.read).length;const b=document.getElementById('notif-badge');if(b){b.textContent=c;b.style.display=c?'flex':'none'}}
+function activateNav(page){document.querySelectorAll('#sidebar-nav a').forEach(x=>x.classList.remove('active'));const a=document.querySelector(`#sidebar-nav a[data-page="${page}"]`);if(a)a.classList.add('active')}
+function getPaymentForReq(id){return payments.find(p=>p.request===id)}
+function isLocked(r){return r.status==='Released'||r.status==='Completed'}
+function getStats(){const s={pending:0,processing:0,ready:0,completed:0,rejected:0,approved:0,cancelled:0,total:requests.length,revenue:0};requests.forEach(r=>{if(r.status==='Pending')s.pending++;else if(r.status==='Approved')s.approved++;else if(r.status==='Processing')s.processing++;else if(r.status==='Ready for Pickup')s.ready++;else if(r.status==='Released'||r.status==='Completed')s.completed++;else if(r.status==='Rejected')s.rejected++;else if(r.status==='Cancelled')s.cancelled++});s.revenue=payments.filter(p=>p.status==='Verified').reduce((a,p)=>a+p.amount,0);return s}
 
-  page().innerHTML = `
-    <div class="panel" style="background:linear-gradient(120deg,var(--navy-900),var(--navy-700));color:#fff;border:none;">
-      <h2 style="color:#fff;font-size:1.3rem;">Welcome back, ${u.name.split(' ')[0]} 👋</h2>
-      <p style="color:#c7d3e8;margin-top:.4rem;font-size:.9rem;">Track your document requests and stay updated on every step.</p>
-    </div>
-    <div class="grid-cards">
-      <div class="stat-card"><div class="stat-label">Total Requests</div><div class="stat-value">${reqs.length}</div></div>
-      <div class="stat-card"><div class="stat-label">In Progress</div><div class="stat-value gold">${pending}</div></div>
-      <div class="stat-card"><div class="stat-label">Ready for Pickup</div><div class="stat-value">${ready}</div></div>
-      <div class="stat-card"><div class="stat-label">Completed</div><div class="stat-value">${completed}</div></div>
-    </div>
-    <div class="panel">
-      <div class="panel-head"><h3>Recent Requests</h3><button class="btn btn-outline btn-sm" onclick="navigate('myrequests')">View all</button></div>
-      ${recent.length ? `<div class="table-wrap"><table><thead><tr><th>ID</th><th>Document</th><th>Date</th><th>Status</th></tr></thead>
-      <tbody>${recent.map(r=>`<tr><td>${r.id}</td><td>${r.document}</td><td>${fmtDate(r.dateRequested)}</td><td>${badge(r.status)}</td></tr>`).join('')}</tbody></table></div>`
-      : emptyState('📄','No requests yet','Submit your first document request to see it here.')}
-    </div>`;
+// ===== RENDER =====
+function renderPage(){const c=document.getElementById('content-area');const pages={dashboard:currentRole==='admin'?adminDash:studentDash,requests:requestsPage,payments:paymentsPage,schedules:schedulesPage,students:studentsPage,doctypes:docTypesPage,notifications:notificationsPage,reports:reportsPage};c.innerHTML=(pages[currentPage]||pages.dashboard)();updateNotifBadge();if(currentPage==='dashboard'&&currentRole==='admin')setTimeout(initCharts,60)}
+
+function adminDash(){const st=getStats();return `
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
+<div class="stat-card border-l-4 border-yellow-400"><div class="text-2xl font-bold text-yellow-600">${st.pending}</div><div class="text-xs text-gray-500 mt-1">Pending</div></div>
+<div class="stat-card border-l-4 border-blue-400"><div class="text-2xl font-bold text-blue-600">${st.processing}</div><div class="text-xs text-gray-500 mt-1">Processing</div></div>
+<div class="stat-card border-l-4 border-teal-400"><div class="text-2xl font-bold text-teal-600">${st.ready}</div><div class="text-xs text-gray-500 mt-1">Ready for Pickup</div></div>
+<div class="stat-card border-l-4 border-green-400"><div class="text-2xl font-bold text-green-600">${st.completed}</div><div class="text-xs text-gray-500 mt-1">Released/Completed</div></div>
+<div class="stat-card border-l-4 border-purple-400"><div class="text-2xl font-bold text-purple-600">${st.approved}</div><div class="text-xs text-gray-500 mt-1">Awaiting Payment</div></div>
+<div class="stat-card border-l-4 border-red-400"><div class="text-2xl font-bold text-red-500">${st.rejected}</div><div class="text-xs text-gray-500 mt-1">Rejected</div></div>
+<div class="stat-card border-l-4 border-orange-400"><div class="text-2xl font-bold text-orange-500">${st.cancelled}</div><div class="text-xs text-gray-500 mt-1">Cancelled</div></div>
+<div class="stat-card border-l-4 border-emerald-400"><div class="text-2xl font-bold text-emerald-600">₱${st.revenue.toLocaleString()}</div><div class="text-xs text-gray-500 mt-1">Revenue</div></div>
+</div>
+<div class="grid lg:grid-cols-2 gap-4 mb-5">
+<div class="bg-white rounded-xl p-5 shadow-sm"><h3 class="font-semibold text-sm mb-3">Requests by Status</h3><canvas id="chartRequests" height="160"></canvas></div>
+<div class="bg-white rounded-xl p-5 shadow-sm"><h3 class="font-semibold text-sm mb-3">Revenue by Document</h3><canvas id="chartRevenue" height="160"></canvas></div>
+</div>
+<div class="grid lg:grid-cols-2 gap-4">
+<div class="bg-white rounded-xl p-5 shadow-sm"><h3 class="font-semibold text-sm mb-3">Pending Approvals</h3><table><thead><tr><th>ID</th><th>Student</th><th>Document</th><th>Actions</th></tr></thead><tbody>${requests.filter(r=>r.status==='Pending').slice(0,5).map(r=>`<tr><td class="text-blue-600 font-medium cursor-pointer" onclick="showRequestDetail('${r.id}')">${r.id}</td><td>${sanitize(r.student)}</td><td>${sanitize(r.doc)}</td><td><button onclick="approveRequest('${r.id}')" class="text-green-600 text-xs mr-1" title="Approve"><i class="fas fa-check"></i></button><button onclick="cancelRequest('${r.id}')" class="text-red-600 text-xs" title="Cancel"><i class="fas fa-ban"></i></button></td></tr>`).join('')||'<tr><td colspan="4" class="empty-state">No pending approvals</td></tr>'}</tbody></table></div>
+<div class="bg-white rounded-xl p-5 shadow-sm"><h3 class="font-semibold text-sm mb-3">Recent Activity</h3><div class="space-y-3">${logs.slice(0,6).map(l=>`<div class="flex items-start gap-3"><div class="w-2 h-2 mt-2 rounded-full ${l.type==='approve'?'bg-green-500':l.type==='reject'||l.type==='cancel'?'bg-red-500':'bg-blue-500'}"></div><div><div class="text-xs text-gray-800">${sanitize(l.action)}</div><div class="text-[11px] text-gray-400">${l.time} · ${sanitize(l.user)}</div></div></div>`).join('')}</div></div>
+</div>`}
+
+function studentDash(){const myReqs=requests.filter(r=>r.student==='Maria Santos');const st={pending:myReqs.filter(r=>r.status==='Pending').length,processing:myReqs.filter(r=>r.status==='Processing').length,ready:myReqs.filter(r=>r.status==='Ready for Pickup').length,done:myReqs.filter(r=>r.status==='Released'||r.status==='Completed').length};
+const unpaid=payments.filter(p=>p.student==='Maria Santos'&&p.status==='Payment Pending');
+return `
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
+<div class="stat-card border-l-4 border-yellow-400"><div class="text-2xl font-bold text-yellow-600">${st.pending}</div><div class="text-xs text-gray-500 mt-1">Pending</div></div>
+<div class="stat-card border-l-4 border-blue-400"><div class="text-2xl font-bold text-blue-500">${st.processing}</div><div class="text-xs text-gray-500 mt-1">Processing</div></div>
+<div class="stat-card border-l-4 border-teal-400"><div class="text-2xl font-bold text-teal-600">${st.ready}</div><div class="text-xs text-gray-500 mt-1">Ready for Pickup</div></div>
+<div class="stat-card border-l-4 border-green-400"><div class="text-2xl font-bold text-green-600">${st.done}</div><div class="text-xs text-gray-500 mt-1">Completed</div></div>
+</div>
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+<button onclick="openNewRequest()" class="bg-blue-600 text-white rounded-xl p-4 text-center hover:bg-blue-700 transition"><i class="fas fa-plus mb-1"></i><div class="text-xs font-medium">New Request</div></button>
+<button onclick="currentPage='requests';activateNav('requests');renderPage()" class="bg-white rounded-xl p-4 text-center shadow-sm hover:shadow transition"><i class="fas fa-search text-blue-600 mb-1"></i><div class="text-xs font-medium text-gray-700">Track Request</div></button>
+<button onclick="currentPage='schedules';activateNav('schedules');renderPage()" class="bg-white rounded-xl p-4 text-center shadow-sm hover:shadow transition"><i class="fas fa-calendar text-teal-600 mb-1"></i><div class="text-xs font-medium text-gray-700">Schedule</div></button>
+<button onclick="currentPage='payments';activateNav('payments');renderPage()" class="bg-white rounded-xl p-4 text-center shadow-sm hover:shadow transition"><i class="fas fa-money-bill text-emerald-600 mb-1"></i><div class="text-xs font-medium text-gray-700">Payments</div></button>
+</div>
+${unpaid.length?`<div class="bg-yellow-50 border border-yellow-200 rounded-xl p-4 mb-4"><div class="flex items-center gap-2 text-yellow-800 text-sm font-medium"><i class="fas fa-exclamation-triangle"></i> You have ${unpaid.length} pending payment(s)</div></div>`:''}
+<div class="bg-white rounded-xl p-5 shadow-sm mb-4"><h3 class="font-semibold text-sm mb-3">My Requests</h3><table><thead><tr><th>ID</th><th>Document</th><th>Date</th><th>Status</th><th>Action</th></tr></thead><tbody>${myReqs.length?myReqs.map(r=>`<tr><td class="text-blue-600 font-medium cursor-pointer" onclick="showRequestDetail('${r.id}')">${r.id}</td><td>${sanitize(r.doc)}</td><td>${r.date}</td><td>${badge(r.status)}</td><td>${r.status==='Approved'&&!r.paid?`<button onclick="openUploadReceipt('${r.id}')" class="text-xs text-emerald-600 font-medium"><i class="fas fa-upload"></i> Pay</button>`:'—'}</td></tr>`).join(''):'<tr><td colspan="5" class="empty-state">No requests yet. Click "New Request" to get started.</td></tr>'}</tbody></table></div>`}
+
+// ===== REQUESTS PAGE =====
+function getFilteredRequests(){let res=[...requests];if(currentRole==='student')res=res.filter(r=>r.student==='Maria Santos');if(reqSearch){const q=reqSearch.toLowerCase();res=res.filter(r=>r.id.toLowerCase().includes(q)||r.student.toLowerCase().includes(q)||r.doc.toLowerCase().includes(q))}if(reqFilter!=='All')res=res.filter(r=>r.status===reqFilter);res.sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id));return res}
+
+function requestsPage(){
+const filtered=getFilteredRequests();const totalPages=Math.max(1,Math.ceil(filtered.length/PER_PAGE));if(reqPageNum>totalPages)reqPageNum=totalPages;const paged=filtered.slice((reqPageNum-1)*PER_PAGE,reqPageNum*PER_PAGE);
+const statuses=['All','Pending','Approved','Processing','Ready for Pickup','Released','Cancelled','Rejected'];
+return `<div class="bg-white rounded-xl p-5 shadow-sm">
+<div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+<h3 class="font-semibold text-sm">${currentRole==='student'?'My':'All'} Requests <span class="text-gray-400 font-normal">(${filtered.length})</span></h3>
+<div class="flex flex-wrap gap-2">
+<input type="text" placeholder="Search..." value="${sanitize(reqSearch)}" class="border rounded-lg px-3 py-1.5 text-xs w-36 focus:outline-none focus:ring-1 focus:ring-blue-400" oninput="reqSearch=this.value;reqPageNum=1;renderPage()">
+<select class="border rounded-lg px-2 py-1.5 text-xs focus:outline-none" onchange="reqFilter=this.value;reqPageNum=1;renderPage()">${statuses.map(s=>`<option ${s===reqFilter?'selected':''}>${s}</option>`).join('')}</select>
+<button onclick="openNewRequest()" class="btn-primary"><i class="fas fa-plus mr-1"></i>New</button>
+</div></div>
+<div class="overflow-x-auto"><table><thead><tr><th>ID</th>${currentRole==='admin'?'<th>Student</th>':''}<th>Document</th><th>Date</th><th>Status</th><th>Actions</th></tr></thead><tbody>${paged.length?paged.map(r=>`<tr><td class="text-blue-600 font-medium cursor-pointer" onclick="showRequestDetail('${r.id}')">${r.id}</td>${currentRole==='admin'?`<td>${sanitize(r.student)}</td>`:''}<td>${sanitize(r.doc)}</td><td>${r.date}</td><td>${badge(r.status)}</td><td class="flex gap-1 flex-wrap">${actionButtons(r)}</td></tr>`).join(''):'<tr><td colspan="6" class="empty-state">No requests found</td></tr>'}</tbody></table></div>
+<div class="pagination">${paginationHtml(totalPages,'reqPageNum')}</div></div>`}
+
+function actionButtons(r){
+let b=`<button onclick="showRequestDetail('${r.id}')" class="text-blue-600 text-xs" title="View"><i class="fas fa-eye"></i></button>`;
+if(currentRole==='admin'&&!isLocked(r)){
+if(r.status==='Pending')b+=` <button onclick="approveRequest('${r.id}')" class="text-green-600 text-xs" title="Approve"><i class="fas fa-check"></i></button> <button onclick="cancelRequest('${r.id}')" class="text-red-600 text-xs" title="Cancel"><i class="fas fa-ban"></i></button>`;
+if(r.status==='Approved'&&r.paid)b+=` <button onclick="processRequest('${r.id}')" class="text-indigo-600 text-xs" title="Process"><i class="fas fa-cog"></i></button>`;
+if(r.status==='Processing')b+=` <button onclick="readyRequest('${r.id}')" class="text-teal-600 text-xs" title="Ready"><i class="fas fa-box-open"></i></button>`;
+if(r.status==='Ready for Pickup')b+=` <button onclick="releaseRequest('${r.id}')" class="text-purple-600 text-xs" title="Release"><i class="fas fa-handshake"></i></button>`;
 }
-
-function emptyState(icon,title,desc){
-  return `<div class="empty-state"><div class="em-icon">${icon}</div><h4>${title}</h4><p style="margin-top:.3rem;">${desc}</p></div>`;
-}
-function renderQrCard({id, documentName, status='Ready for Pickup', title='My QR Codes', subtitle='Show these QR codes to the registrar window for verification during release.'}){
-  const safeId = String(id || 'qr').replace(/[^a-zA-Z0-9]+/g, '-');
-  const statusText = status === 'Ready for Pickup' ? 'Ready for Pick Up' : status;
-  const payload = `${id}|${documentName}|${status}`;
-  return `
-    <div class="panel qr-panel">
-      <h3 class="section-title qr-title">${title}</h3>
-      <p class="qr-subtitle">${subtitle}</p>
-      <div class="qr-card">
-        <div class="qr-box" id="qr-${safeId}" data-qr="${payload}"></div>
-        <div class="qr-id">${id}</div>
-        <div class="qr-doc">${documentName}</div>
-        <div class="qr-pill ${status === 'Ready for Pickup' ? 'ready' : ''}">${statusText}</div>
-      </div>
-    </div>`;
-}
-function renderQrBoxes(){
-  document.querySelectorAll('.qr-box').forEach(box => {
-    const data = box.dataset.qr;
-    if(!data) return;
-    box.innerHTML = '';
-    box.classList.remove('qr-placeholder');
-    if(window.QRCode){
-      try {
-        new QRCode(box, {
-          text: data,
-          width: 220,
-          height: 220,
-          colorDark: '#132a4d',
-          colorLight: '#ffffff',
-          correctLevel: QRCode.CorrectLevel.M
-        });
-      } catch (err) {
-        box.classList.add('qr-placeholder');
-      }
-    } else {
-      box.classList.add('qr-placeholder');
-    }
-  });
-}
-
-/* ======================= STUDENT: REQUEST FORM ======================= */
-function renderRequestForm(){
-  const selectedDocs = [];
-
-  page().innerHTML = `
-    <div class="panel">
-      <h3 class="section-title">Request a Document</h3>
-      <form id="req-form">
-        <div class="form-grid">
-          <div class="field full">
-            <span>Document Type</span>
-            <div id="rf-selected-docs" class="doc-chip-list"></div>
-            <button type="button" class="btn btn-outline btn-sm" id="rf-add-doc-btn" style="align-self:flex-start;">+ Add Document</button>
-          </div>
-          <label class="field" id="rf-qty-wrap" hidden><span>Quantity</span><input type="number" id="rf-qty" min="1" value="1"></label>
-          <label class="field full"><span>Purpose</span><input type="text" id="rf-purpose" placeholder="e.g. College application" required></label>
-          <label class="field"><span>Preferred Pickup Date</span><input type="date" id="rf-date" required></label>
-          <label class="field"><span>&nbsp;</span><div class="muted">Processing typically takes 3–5 working days.</div></label>
-          <label class="field full"><span>Additional Remarks (optional)</span><textarea id="rf-remarks" rows="2" placeholder="Any special instructions..."></textarea></label>
-        </div>
-        <div class="summary-box" id="rf-summary">
-          <div class="summary-row"><span>Document</span><span>—</span></div>
-          <div class="summary-row"><span>Processing Fee</span><span>—</span></div>
-          <div class="summary-row total"><span>Total Cost</span><span>—</span></div>
-        </div>
-        <div style="margin-top:1.2rem;"><button type="submit" class="btn btn-primary">Submit Request</button></div>
-      </form>
-    </div>`;
-
-  const renderSelectedDocs = ()=>{
-    const list = $('#rf-selected-docs');
-    if(!selectedDocs.length){
-      list.innerHTML = '<span class="muted">No document added yet.</span>';
-      $('#rf-qty-wrap').hidden = true;
-      return;
-    }
-    list.innerHTML = selectedDocs.map((doc, idx)=>`
-      <span class="doc-chip">
-        ${doc}
-        <button type="button" class="doc-chip-remove" data-index="${idx}" aria-label="Remove ${doc}">×</button>
-      </span>`).join('');
-    list.querySelectorAll('.doc-chip-remove').forEach(btn => {
-      btn.onclick = () => {
-        selectedDocs.splice(Number(btn.dataset.index), 1);
-        renderSelectedDocs();
-        upd();
-      };
-    });
-    $('#rf-qty-wrap').hidden = false;
-  };
-
-  const upd = ()=>{
-    const qtyInput = $('#rf-qty');
-    const qty = qtyInput ? Math.max(1, parseInt(qtyInput.value||1)) : 1;
-    if(!selectedDocs.length){
-      $('#rf-summary').innerHTML = `
-        <div class="summary-row"><span>Document</span><span>—</span></div>
-        <div class="summary-row"><span>Processing Fee</span><span>—</span></div>
-        <div class="summary-row total"><span>Total Cost</span><span>—</span></div>`;
-      return;
-    }
-    const list = selectedDocs.map(doc=>`${doc} × ${qty}`).join(', ');
-    const fee = selectedDocs.reduce((sum, doc)=> sum + FEES[doc]*qty, 0);
-    const feeText = selectedDocs.map(doc => {
-      const amount = FEES[doc];
-      return `${doc}: ${amount === 0 ? feeLabel(amount) : feeLabel(amount, true)}`;
-    }).join(' · ');
-    $('#rf-summary').innerHTML = `
-      <div class="summary-row"><span>Document</span><span>${list}</span></div>
-      <div class="summary-row"><span>Processing Fee</span><span>${feeText}</span></div>
-      <div class="summary-row total"><span>Total Cost</span><span>${fee === 0 ? feeLabel(0) : feeLabel(fee)}</span></div>`;
-  };
-
-  $('#rf-add-doc-btn').onclick = ()=>{
-    openModal(`
-      <h3>Add Document</h3>
-      <p class="muted" style="margin-top:.3rem;">Select the document type to add to your request.</p>
-      <label class="field" style="margin-top:1rem;">
-        <span>Document Type</span>
-        <select id="rf-modal-doc">
-          <option value="">Select a document</option>
-          ${Object.keys(FEES).map(d=>`<option value="${d}">${d}</option>`).join('')}
-        </select>
-      </label>
-      <div class="modal-close-row">
-        <button type="button" class="btn btn-outline" onclick="closeModal()">Cancel</button>
-        <button type="button" class="btn btn-primary" id="rf-modal-add">Add Document</button>
-      </div>
-    `);
-    $('#rf-modal-add').onclick = ()=>{
-      const doc = $('#rf-modal-doc').value;
-      if(!doc){ toast('Please select a document type.'); return; }
-      if(!selectedDocs.includes(doc)) selectedDocs.push(doc);
-      closeModal();
-      renderSelectedDocs();
-      upd();
-    };
-  };
-
-  $('#rf-qty-wrap').addEventListener('input', upd);
-  renderSelectedDocs(); upd();
-
-  $('#req-form').onsubmit = e=>{
-    e.preventDefault();
-    if(!selectedDocs.length){ toast('Please add at least one document type.'); return; }
-    const qtyInput = $('#rf-qty');
-    const qty = qtyInput ? Math.max(1, parseInt(qtyInput.value||1)) : 1;
-    const u = currentUser();
-    const reqs = DB.get('dt_requests',[]);
-    const id = 'REQ-'+(10300+reqs.length+Math.floor(Math.random()*90));
-    const docLabel = selectedDocs.join(', ');
-    const fee = selectedDocs.reduce((sum, doc)=> sum + FEES[doc]*qty, 0);
-    reqs.unshift({
-      id, studentEmail:u.email, studentName:u.name, document:docLabel, documents:selectedDocs, purpose:$('#rf-purpose').value,
-      quantity:qty, pickupDate:$('#rf-date').value, remarks:$('#rf-remarks').value, fee,
-      status:'Pending', paymentStatus: fee === 0 ? 'Paid' : 'Unpaid', paymentMethod: fee === 0 ? 'Free' : '', paymentRef: fee === 0 ? 'FREE' : '', paymentDate: fee === 0 ? new Date().toISOString().slice(0,10) : '',
-      dateRequested:new Date().toISOString().slice(0,10), pickupSlot:null
-    });
-    DB.set('dt_requests', reqs);
-    addLog(u.name, 'Submitted request', `Requested ${docLabel} x${qty} (${id})`);
-    toast(`Request submitted! Reference: ${id}`);
-    navigate('myrequests');
-  };
+if(currentRole==='student'&&r.status==='Approved'&&!r.paid)b+=` <button onclick="openUploadReceipt('${r.id}')" class="text-emerald-600 text-xs"><i class="fas fa-upload"></i></button>`;
+return b;
 }
 
-/* ======================= STUDENT: MY REQUESTS ======================= */
-function renderMyRequests(){
-  const reqs = [...myRequests()].sort((a,b)=> (b.dateRequested || '').localeCompare(a.dateRequested || '')).slice(0,1);
-  page().innerHTML = `
-    <div class="panel">
-      <div class="panel-head"><h3>My Requests</h3><button class="btn btn-primary btn-sm" onclick="navigate('request')">+ New Request</button></div>
-      ${reqs.length ? `<div class="table-wrap"><table><thead><tr>
-        <th>Request ID</th><th>Document</th><th>Date</th><th>Status</th><th>Payment</th><th>Pickup</th><th>Actions</th>
-        </tr></thead><tbody>
-        ${reqs.map(r=>`<tr>
-          <td>${r.id}</td><td>${r.document}</td><td>${fmtDate(r.dateRequested)}</td>
-          <td>${badge(r.status)}</td><td><span class="badge ${r.paymentStatus==='Paid'?'badge-paid':'badge-unpaid'}">${r.paymentStatus}</span></td>
-          <td>${fmtDate(r.pickupDate)}</td>
-          <td><button class="btn btn-outline btn-sm" onclick="viewRequest('${r.id}')">Track</button></td>
-        </tr>`).join('')}
-        </tbody></table></div>`
-      : emptyState('📄','No requests yet','Your submitted document requests will appear here.')}
-    </div>`;
+function paginationHtml(total,varName){
+let h=`<button ${eval(varName)<=1?'disabled':''} onclick="${varName}--;renderPage()"><i class="fas fa-chevron-left"></i></button>`;
+for(let i=1;i<=total;i++)h+=`<button class="${i===eval(varName)?'active':''}" onclick="${varName}=${i};renderPage()">${i}</button>`;
+h+=`<button ${eval(varName)>=total?'disabled':''} onclick="${varName}++;renderPage()"><i class="fas fa-chevron-right"></i></button>`;
+return h;
 }
 
-function viewRequest(id){
-  const r = DB.get('dt_requests',[]).find(x=>x.id===id);
-  if(!r) return;
-  const idx = STATUS_FLOW.indexOf(r.status);
-  const rejected = r.status==='Rejected';
-  openModal(`
-    <h3>${r.id} — ${r.document}</h3>
-    <p class="muted" style="margin-top:.3rem;">Requested on ${fmtDate(r.dateRequested)} · Qty ${r.quantity}</p>
-    <div class="summary-box" style="margin-top:1rem;">
-      <div class="summary-row"><span>Purpose</span><span>${r.purpose||'—'}</span></div>
-      <div class="summary-row"><span>Preferred Pickup</span><span>${fmtDate(r.pickupDate)}</span></div>
-      <div class="summary-row"><span>Payment</span><span>${r.paymentStatus}</span></div>
-      <div class="summary-row total"><span>Total Cost</span><span>${fmtMoney(r.fee)}</span></div>
-    </div>
-    ${rejected ? `<div class="form-error" style="margin-top:1rem;">This request was rejected. Please contact the Registrar's office for details.</div>` :
-    `<div class="timeline">
-      ${STATUS_FLOW.map((s,i)=>`
-        <div class="tl-step ${i<idx?'done':''} ${i===idx?'current':''}">
-          <div class="tl-dot">${i<idx?'✓':i+1}</div>
-          <div class="tl-body"><div class="tl-title">${s}</div>
-          <div class="tl-desc">${statusDesc(s)}</div></div>
-        </div>`).join('')}
-    </div>`}
-    <div class="modal-close-row"><button class="btn btn-outline" onclick="closeModal()">Close</button></div>
-  `);
-}
-function statusDesc(s){
-  return {
-    'Pending':'Your request has been received and is in queue.',
-    'Under Review':'The registrar is verifying your records.',
-    'Approved':'Your request has been approved for processing.',
-    'Processing':'Your document is being prepared.',
-    'Ready for Pickup':'Your document is ready at the Registrar window.',
-    'Completed':'Document released. Thank you!'
-  }[s]||'';
+// ===== STUDENTS PAGE =====
+function getFilteredStudents(){
+let res=[...students];
+if(stuSearch){const q=stuSearch.toLowerCase();res=res.filter(s=>getFullName(s).toLowerCase().includes(q)||s.student_number.toLowerCase().includes(q)||s.email.toLowerCase().includes(q))}
+if(stuFilterCourse!=='All')res=res.filter(s=>s.course===stuFilterCourse);
+if(stuFilterYear!=='All')res=res.filter(s=>s.year_level===stuFilterYear);
+if(stuFilterSection!=='All')res=res.filter(s=>s.section===stuFilterSection);
+return res;
 }
 
-/* ======================= STUDENT: PAYMENTS ======================= */
-function renderPayments(){
-  const reqs = [...myRequests()].sort((a,b)=> (b.dateRequested || '').localeCompare(a.dateRequested || '')).slice(0,1);
-  page().innerHTML = `
-    <div class="panel">
-      <h3 class="section-title">Payments</h3>
-      ${reqs.length? `<div class="table-wrap"><table><thead><tr>
-        <th>Request ID</th><th>Amount</th><th>Method</th><th>Reference No.</th><th>Date</th><th>Status</th><th>Action</th>
-        </tr></thead><tbody>
-        ${reqs.map(r=>`<tr>
-          <td>${r.id}</td><td>${fmtMoney(r.fee)}</td><td>${r.paymentMethod||'—'}</td><td>${r.paymentRef||'—'}</td>
-          <td>${r.paymentDate?fmtDate(r.paymentDate):'—'}</td>
-          <td><span class="badge ${r.paymentStatus==='Paid'?'badge-paid':'badge-unpaid'}">${r.paymentStatus}</span></td>
-          <td>${r.paymentStatus==='Paid' ? '<span class="muted">Paid</span>' : `<button class="btn btn-gold btn-sm" onclick="payNow('${r.id}')">Pay Now</button>`}</td>
-        </tr>`).join('')}</tbody></table></div>`
-      : emptyState('💳','No payments due','Submit a document request to see payment details here.')}
-    </div>`;
-}
-function payNow(id){
-  openModal(`
-    <h3>Pay for ${id}</h3>
-    <p class="muted" style="margin-top:.3rem;">Choose a payment method to simulate payment.</p>
-    <div class="form-grid" style="margin-top:1rem;">
-      <label class="field"><span>Payment Method</span>
-        <select id="pay-method"><option>GCash</option><option>Over the counter</option></select>
-      </label>
-    </div>
-    <div class="modal-close-row">
-      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
-      <button class="btn btn-primary" onclick="confirmPayment('${id}')">Confirm Payment</button>
-    </div>`);
-}
-function confirmPayment(id){
-  const reqs = DB.get('dt_requests',[]);
-  const r = reqs.find(x=>x.id===id);
-  const method = $('#pay-method').value;
-  r.paymentStatus='Paid'; r.paymentMethod=method; r.paymentRef='PMT-'+Math.floor(80000+Math.random()*9999);
-  r.paymentDate=new Date().toISOString().slice(0,10);
-  DB.set('dt_requests', reqs);
-  pushNotification('Payment Received', `We received your payment of ${fmtMoney(r.fee)} for ${r.id}.`, 'payment');
-  addLog(currentUser().name, 'Made payment', `${r.paymentRef} for ${r.id}`);
-  closeModal(); toast('Payment successful!'); renderPayments();
+function studentsPage(){
+if(currentRole!=='admin')return '<div class="empty-state">Access denied</div>';
+const filtered=getFilteredStudents();
+const totalPages=Math.max(1,Math.ceil(filtered.length/STU_PER_PAGE));
+if(stuPageNum>totalPages)stuPageNum=totalPages;
+const paged=filtered.slice((stuPageNum-1)*STU_PER_PAGE,stuPageNum*STU_PER_PAGE);
+const courses=[...new Set(students.map(s=>s.course))];
+const years=[...new Set(students.map(s=>s.year_level))];
+const sections=[...new Set(students.map(s=>s.section))];
+
+return `<div class="bg-white rounded-xl p-5 shadow-sm">
+<div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+<h3 class="font-semibold text-sm">Students <span class="text-gray-400 font-normal">(${filtered.length})</span></h3>
+<div class="flex flex-wrap gap-2">
+<input type="text" placeholder="Search name, ID, email..." value="${sanitize(stuSearch)}" class="border rounded-lg px-3 py-1.5 text-xs w-44 focus:outline-none focus:ring-1 focus:ring-blue-400" oninput="stuSearch=this.value;stuPageNum=1;renderPage()">
+<select class="border rounded-lg px-2 py-1.5 text-xs" onchange="stuFilterCourse=this.value;stuPageNum=1;renderPage()"><option value="All">All Courses</option>${courses.map(c=>`<option ${c===stuFilterCourse?'selected':''}>${c}</option>`).join('')}</select>
+<select class="border rounded-lg px-2 py-1.5 text-xs" onchange="stuFilterYear=this.value;stuPageNum=1;renderPage()"><option value="All">All Years</option>${years.map(y=>`<option ${y===stuFilterYear?'selected':''}>${y}</option>`).join('')}</select>
+<select class="border rounded-lg px-2 py-1.5 text-xs" onchange="stuFilterSection=this.value;stuPageNum=1;renderPage()"><option value="All">All Sections</option>${sections.map(sc=>`<option ${sc===stuFilterSection?'selected':''}>${sc}</option>`).join('')}</select>
+</div>
+</div>
+<div class="flex gap-2 mb-4">
+<button onclick="openAddStudent()" class="btn-primary"><i class="fas fa-plus mr-1"></i>Manual Add</button>
+<button onclick="openCSVImport()" class="btn-secondary"><i class="fas fa-file-csv mr-1"></i>CSV Import</button>
+</div>
+<div class="overflow-x-auto"><table><thead><tr><th>Student No.</th><th>Name</th><th>Course</th><th>Year</th><th>Section</th><th>Status</th><th>Actions</th></tr></thead><tbody>${paged.length?paged.map(s=>`<tr>
+<td class="font-medium">${sanitize(s.student_number)}</td>
+<td>${sanitize(getFullName(s))}</td>
+<td>${s.course}</td>
+<td>${s.year_level}</td>
+<td>${s.section}</td>
+<td><span class="badge ${s.status==='Active'?'badge-approved':'badge-rejected'}">${s.status}</span></td>
+<td class="flex gap-1"><button onclick="openViewStudent(${s.id})" class="text-blue-600 text-xs" title="View"><i class="fas fa-eye"></i></button><button onclick="openEditStudent(${s.id})" class="text-yellow-600 text-xs" title="Edit"><i class="fas fa-edit"></i></button><button onclick="confirmDeleteStudent(${s.id})" class="text-red-600 text-xs" title="Delete"><i class="fas fa-trash"></i></button></td>
+</tr>`).join(''):'<tr><td colspan="7" class="empty-state">No students found. Add students manually or import via CSV.</td></tr>'}</tbody></table></div>
+<div class="pagination">${paginationHtml(totalPages,'stuPageNum')}</div></div>`}
+
+function studentFormFields(s){
+const g=s||{student_number:'',firstname:'',middlename:'',lastname:'',suffix:'',course:'BSIT',year_level:'1st',section:'A',gender:'Male',birthdate:'',email:'',contact_number:'',status:'Active'};
+return `
+<div class="grid grid-cols-2 gap-3">
+<div><label class="text-xs font-medium text-gray-600 block mb-1">Student Number *</label><input id="sf-snum" type="text" value="${sanitize(g.student_number)}" class="border rounded-lg px-3 py-2 text-sm w-full" placeholder="e.g., 2024-0005"></div>
+<div><label class="text-xs font-medium text-gray-600 block mb-1">First Name *</label><input id="sf-fname" type="text" value="${sanitize(g.firstname)}" class="border rounded-lg px-3 py-2 text-sm w-full"></div>
+<div><label class="text-xs font-medium text-gray-600 block mb-1">Middle Name</label><input id="sf-mname" type="text" value="${sanitize(g.middlename)}" class="border rounded-lg px-3 py-2 text-sm w-full"></div>
+<div><label class="text-xs font-medium text-gray-600 block mb-1">Last Name *</label><input id="sf-lname" type="text" value="${sanitize(g.lastname)}" class="border rounded-lg px-3 py-2 text-sm w-full"></div>
+<div><label class="text-xs font-medium text-gray-600 block mb-1">Suffix</label><input id="sf-suffix" type="text" value="${sanitize(g.suffix)}" class="border rounded-lg px-3 py-2 text-sm w-full" placeholder="Jr., Sr., III"></div>
+<div><label class="text-xs font-medium text-gray-600 block mb-1">Course *</label><select id="sf-course" class="border rounded-lg px-3 py-2 text-sm w-full">${['BSIT','BSCS','BSA','BSBA','BSEd','BSCE'].map(c=>`<option ${c===g.course?'selected':''}>${c}</option>`).join('')}</select></div>
+<div><label class="text-xs font-medium text-gray-600 block mb-1">Year Level *</label><select id="sf-year" class="border rounded-lg px-3 py-2 text-sm w-full">${['1st','2nd','3rd','4th'].map(y=>`<option ${y===g.year_level?'selected':''}>${y}</option>`).join('')}</select></div>
+<div><label class="text-xs font-medium text-gray-600 block mb-1">Section *</label><select id="sf-section" class="border rounded-lg px-3 py-2 text-sm w-full">${['A','B','C','D','E'].map(sc=>`<option ${sc===g.section?'selected':''}>${sc}</option>`).join('')}</select></div>
+<div><label class="text-xs font-medium text-gray-600 block mb-1">Gender *</label><select id="sf-gender" class="border rounded-lg px-3 py-2 text-sm w-full">${['Male','Female','Other'].map(x=>`<option ${x===g.gender?'selected':''}>${x}</option>`).join('')}</select></div>
+<div><label class="text-xs font-medium text-gray-600 block mb-1">Birthdate</label><input id="sf-bday" type="date" value="${g.birthdate}" class="border rounded-lg px-3 py-2 text-sm w-full"></div>
+<div><label class="text-xs font-medium text-gray-600 block mb-1">Email *</label><input id="sf-email" type="email" value="${sanitize(g.email)}" class="border rounded-lg px-3 py-2 text-sm w-full"></div>
+<div><label class="text-xs font-medium text-gray-600 block mb-1">Contact Number</label><input id="sf-contact" type="text" value="${sanitize(g.contact_number)}" class="border rounded-lg px-3 py-2 text-sm w-full" placeholder="09xxxxxxxxx"></div>
+<div><label class="text-xs font-medium text-gray-600 block mb-1">Status</label><select id="sf-status" class="border rounded-lg px-3 py-2 text-sm w-full">${['Active','Inactive'].map(x=>`<option ${x===g.status?'selected':''}>${x}</option>`).join('')}</select></div>
+</div>
+<div id="sf-error" class="error-msg hidden mt-2">Please fill in all required fields.</div>`}
+
+function getFormStudent(){
+const snum=document.getElementById('sf-snum').value.trim(),fname=document.getElementById('sf-fname').value.trim(),lname=document.getElementById('sf-lname').value.trim(),email=document.getElementById('sf-email').value.trim();
+if(!snum||!fname||!lname||!email){document.getElementById('sf-error').classList.remove('hidden');return null}
+return{student_number:snum,firstname:fname,middlename:document.getElementById('sf-mname').value.trim(),lastname:lname,suffix:document.getElementById('sf-suffix').value.trim(),course:document.getElementById('sf-course').value,year_level:document.getElementById('sf-year').value,section:document.getElementById('sf-section').value,gender:document.getElementById('sf-gender').value,birthdate:document.getElementById('sf-bday').value,email,contact_number:document.getElementById('sf-contact').value.trim(),status:document.getElementById('sf-status').value};
 }
 
-/* ======================= STUDENT: PICKUP ======================= */
-function renderPickup(){
-  const reqs = myRequests().filter(r=>!['Completed','Rejected'].includes(r.status));
-  const paidReqs = reqs.filter(r=>r.paymentStatus === 'Paid');
-  const qrRequest = paidReqs.find(r=>r.status === 'Ready for Pickup') || paidReqs[0] || null;
-  const dates = [1,2,3,4,5].map(n=>{ const d=new Date(); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); });
-  const times = ['9:00 AM – 10:00 AM','10:00 AM – 11:00 AM','1:00 PM – 2:00 PM','2:00 PM – 3:00 PM'];
-  page().innerHTML = `
-    ${qrRequest ? renderQrCard({
-      id: qrRequest.id,
-      documentName: qrRequest.document,
-      status: 'Ready for Pickup',
-      title: 'My QR Codes',
-      subtitle: 'Show these QR codes to the registrar window for verification during release.'
-    }) : ''}
-    <div class="panel">
-      <h3 class="section-title">Schedule Pickup</h3>
-      ${reqs.length ? `
-      <label class="field"><span>Select Request</span>
-        <select id="pk-req">${reqs.map(r=>`<option value="${r.id}">${r.id} — ${r.document}</option>`).join('')}</select>
-      </label>
-      <p style="margin:1rem 0 .5rem;font-weight:600;font-size:.85rem;">Available Dates</p>
-      <div class="chip-row" id="pk-dates">${dates.map(d=>`<button type="button" class="date-chip" data-date="${d}">${fmtDate(d)}</button>`).join('')}</div>
-      <p style="margin:0 0 .5rem;font-weight:600;font-size:.85rem;">Available Time Slots</p>
-      <div class="slot-grid" id="pk-slots">${times.map(t=>`<button type="button" class="slot-btn" data-time="${t}">${t}</button>`).join('')}</div>
-      <div style="margin-top:1.3rem;"><button class="btn btn-primary" id="pk-save">Confirm Schedule</button></div>
-      ` : emptyState('📅','Nothing to schedule','Requests ready for pickup scheduling will appear here.')}
-    </div>`;
-  if(qrRequest) renderQrBoxes();
-  if(!reqs.length) return;
-  let selDate=null, selTime=null;
-  document.querySelectorAll('#pk-dates .date-chip').forEach(b=> b.onclick=()=>{
-    document.querySelectorAll('#pk-dates .date-chip').forEach(x=>x.classList.remove('selected'));
-    b.classList.add('selected'); selDate=b.dataset.date;
-  });
-  document.querySelectorAll('#pk-slots .slot-btn').forEach(b=> b.onclick=()=>{
-    document.querySelectorAll('#pk-slots .slot-btn').forEach(x=>x.classList.remove('selected'));
-    b.classList.add('selected'); selTime=b.dataset.time;
-  });
-  $('#pk-save').onclick = ()=>{
-    if(!selDate||!selTime){ toast('Please select a date and time slot.'); return; }
-    const reqs2 = DB.get('dt_requests',[]);
-    const r = reqs2.find(x=>x.id===$('#pk-req').value);
-    r.pickupSlot = {date:selDate, time:selTime};
-    DB.set('dt_requests', reqs2);
-    addLog(currentUser().name, 'Scheduled pickup', `${r.id} → ${fmtDate(selDate)}, ${selTime}`);
-    openModal(`
-      <h3>Pickup Scheduled ✓</h3>
-      <div class="summary-box" style="margin-top:1rem;">
-        <div class="summary-row"><span>Request</span><span>${r.id}</span></div>
-        <div class="summary-row"><span>Date</span><span>${fmtDate(selDate)}</span></div>
-        <div class="summary-row"><span>Time Window</span><span>${selTime}</span></div>
-        <div class="summary-row total"><span>Claim Stub</span><span>CLM-${r.id.slice(4)}</span></div>
-      </div>
-      <p class="muted" style="margin-top:.8rem;">Present this reference and a valid ID at the Registrar window.</p>
-      <div class="modal-close-row"><button class="btn btn-primary" onclick="closeModal()">Done</button></div>`);
-    renderPickup();
-  };
+function openAddStudent(){
+openModal(`<div class="flex items-center justify-between mb-4"><h3 class="font-bold">Add Student</h3><button onclick="closeModal()" class="text-gray-400 text-lg">&times;</button></div>
+<form onsubmit="event.preventDefault();submitAddStudent()"><div class="space-y-3">${studentFormFields()}
+<div class="flex gap-2 pt-2"><button type="submit" class="btn-primary flex-1">Save Student</button><button type="button" onclick="closeModal()" class="btn-secondary flex-1">Cancel</button></div>
+</div></form>`)}
+
+function submitAddStudent(){const data=getFormStudent();if(!data)return;data.id=nextStudentId++;students.push(data);addLog('Added student: '+data.firstname+' '+data.lastname,'create');closeModal();showToast('Student added');renderPage()}
+
+function openEditStudent(id){const s=students.find(x=>x.id===id);if(!s)return;
+openModal(`<div class="flex items-center justify-between mb-4"><h3 class="font-bold">Edit Student</h3><button onclick="closeModal()" class="text-gray-400 text-lg">&times;</button></div>
+<form onsubmit="event.preventDefault();submitEditStudent(${id})"><div class="space-y-3">${studentFormFields(s)}
+<div class="flex gap-2 pt-2"><button type="submit" class="btn-primary flex-1">Update Student</button><button type="button" onclick="closeModal()" class="btn-secondary flex-1">Cancel</button></div>
+</div></form>`)}
+
+function submitEditStudent(id){const data=getFormStudent();if(!data)return;const s=students.find(x=>x.id===id);if(!s)return;Object.assign(s,data);addLog('Updated student: '+data.firstname+' '+data.lastname,'edit');closeModal();showToast('Student updated');renderPage()}
+
+function openViewStudent(id){const s=students.find(x=>x.id===id);if(!s)return;
+const sr=requests.filter(r=>r.student===getFullName(s));
+openModal(`<div class="flex items-center justify-between mb-4"><h3 class="font-bold">${sanitize(getFullName(s))}</h3><button onclick="closeModal()" class="text-gray-400 text-lg">&times;</button></div>
+<div class="grid grid-cols-2 gap-3 text-sm mb-4">
+<div><span class="text-gray-500 text-xs">Student No.</span><div class="font-medium">${sanitize(s.student_number)}</div></div>
+<div><span class="text-gray-500 text-xs">Course & Year</span><div>${s.course} - ${s.year_level}</div></div>
+<div><span class="text-gray-500 text-xs">Section</span><div>${s.section}</div></div>
+<div><span class="text-gray-500 text-xs">Gender</span><div>${s.gender}</div></div>
+<div><span class="text-gray-500 text-xs">Email</span><div>${sanitize(s.email)}</div></div>
+<div><span class="text-gray-500 text-xs">Contact</span><div>${sanitize(s.contact_number)||'—'}</div></div>
+<div><span class="text-gray-500 text-xs">Birthdate</span><div>${s.birthdate||'—'}</div></div>
+<div><span class="text-gray-500 text-xs">Status</span><div>${badge(s.status==='Active'?'Approved':'Rejected')}</div></div>
+</div>
+<h4 class="font-semibold text-xs mb-2">Requests (${sr.length})</h4>
+<table><thead><tr><th>ID</th><th>Document</th><th>Status</th></tr></thead><tbody>${sr.length?sr.map(r=>`<tr><td class="text-blue-600">${r.id}</td><td>${sanitize(r.doc)}</td><td>${badge(r.status)}</td></tr>`).join(''):'<tr><td colspan="3" class="text-center text-gray-400 py-3">No requests</td></tr>'}</tbody></table>
+<div class="flex gap-2 mt-4"><button onclick="closeModal()" class="btn-secondary">Back</button></div>`)}
+
+function confirmDeleteStudent(id){const s=students.find(x=>x.id===id);if(!s)return;
+openModal(`<div class="flex items-center justify-between mb-4"><h3 class="font-bold text-red-600">Delete Student</h3><button onclick="closeModal()" class="text-gray-400 text-lg">&times;</button></div>
+<p class="text-sm text-gray-600 mb-4">Are you sure you want to delete <strong>${sanitize(getFullName(s))}</strong> (${sanitize(s.student_number)})? This action cannot be undone.</p>
+<div class="flex gap-2"><button onclick="deleteStudent(${id})" class="btn-danger flex-1">Yes, Delete</button><button onclick="closeModal()" class="btn-secondary flex-1">Cancel</button></div>`)}
+
+function deleteStudent(id){students=students.filter(x=>x.id!==id);addLog('Deleted student ID '+id,'delete');closeModal();showToast('Student deleted','error');renderPage()}
+
+// CSV Import
+function openCSVImport(){
+openModal(`<div class="flex items-center justify-between mb-4"><h3 class="font-bold">CSV Import Students</h3><button onclick="closeModal()" class="text-gray-400 text-lg">&times;</button></div>
+<div class="space-y-4">
+<div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-800"><i class="fas fa-info-circle mr-1"></i> Upload a CSV file with columns: student_number, firstname, middlename, lastname, suffix, course, year_level, section, gender, birthdate, email, contact_number. You can import per section or per batch.</div>
+<div><label class="text-xs font-medium text-gray-600 block mb-1">Target Section (optional grouping)</label><select id="csv-section" class="border rounded-lg px-3 py-2 text-sm w-full"><option value="">— Auto-detect from CSV —</option>${['A','B','C','D','E'].map(s=>`<option value="${s}">Section ${s}</option>`).join('')}</select></div>
+<div class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center cursor-pointer hover:border-blue-400 transition" onclick="simulateCSVImport()">
+<i class="fas fa-cloud-upload-alt text-3xl text-gray-400 mb-2"></i>
+<p class="text-sm text-gray-500">Click to select CSV file or drag and drop</p>
+<p class="text-xs text-gray-400 mt-1">Demo: Click to import sample students</p>
+</div>
+<div id="csv-preview" class="hidden"></div>
+<div class="flex gap-2"><button id="csv-confirm-btn" onclick="confirmCSVImport()" class="btn-primary hidden"><i class="fas fa-check mr-1"></i>Confirm Import</button><button onclick="closeModal()" class="btn-secondary">Cancel</button></div>
+</div>`)}
+
+let csvPendingRows=[];
+function simulateCSVImport(){
+const section=document.getElementById('csv-section').value;
+csvPendingRows=[
+{student_number:'2024-0010',firstname:'Carlo',middlename:'',lastname:'Mendoza',suffix:'',course:'BSIT',year_level:'2nd',section:section||'A',gender:'Male',birthdate:'2004-06-20',email:'carlo@univ.edu.ph',contact_number:'09221234567',status:'Active'},
+{student_number:'2024-0011',firstname:'Rica',middlename:'Lim',lastname:'Gonzales',suffix:'',course:'BSIT',year_level:'2nd',section:section||'A',gender:'Female',birthdate:'2004-02-14',email:'rica@univ.edu.ph',contact_number:'09231234567',status:'Active'},
+{student_number:'2024-0012',firstname:'Mark',middlename:'',lastname:'Villanueva',suffix:'Jr.',course:'BSCS',year_level:'3rd',section:section||'B',gender:'Male',birthdate:'2003-11-30',email:'mark@univ.edu.ph',contact_number:'09241234567',status:'Active'}
+];
+document.getElementById('csv-preview').classList.remove('hidden');
+document.getElementById('csv-preview').innerHTML=`<div class="text-xs font-medium text-gray-700 mb-2">Preview (${csvPendingRows.length} rows):</div><div class="overflow-x-auto max-h-40 overflow-y-auto border rounded-lg"><table><thead><tr><th>Student No.</th><th>Name</th><th>Course</th><th>Section</th></tr></thead><tbody>${csvPendingRows.map(r=>`<tr><td>${r.student_number}</td><td>${r.firstname} ${r.lastname}</td><td>${r.course}</td><td>${r.section}</td></tr>`).join('')}</tbody></table></div>`;
+document.getElementById('csv-confirm-btn').classList.remove('hidden');
 }
 
-/* ======================= NOTIFICATIONS (shared) ======================= */
-function pushNotification(title, desc, type){
-  const n = DB.get('dt_notifications',[]);
-  n.unshift({id:Date.now(), title, desc, time:'Just now', read:false, type});
-  DB.set('dt_notifications', n);
-}
-const NOTIF_ICON = {approved:'✅', payment:'💳', processing:'⚙️', ready:'📦', announce:'📣'};
-function renderAboutUs(){
-  page().innerHTML = `
-    <div class="panel">
-      <h3 class="section-title">About Us</h3>
-      <div class="about-wrap">
-        <div class="about-hero">
-          <div class="brand-mark" style="width:62px;height:62px;font-size:1.4rem;">DT</div>
-          <div>
-            <h4>DocuTrack</h4>
-            <p>School Registrar Document Request &amp; Tracking System</p>
-          </div>
-        </div>
-        <div class="about-grid">
-          <div class="about-card">
-            <h5>Our Mission</h5>
-            <p>To make document requests easier, faster, and more transparent for students and school personnel.</p>
-          </div>
-          <div class="about-card">
-            <h5>What We Offer</h5>
-            <p>Online document requests, status tracking, payment updates, pickup scheduling, and verified QR release slips.</p>
-          </div>
-          <div class="about-card">
-            <h5>Contact</h5>
-            <p>Registrar's Office<br>Guiguinto National Vocational High School<br>Mon–Fri, 8:00 AM – 5:00 PM</p>
-          </div>
-          <div class="about-card">
-            <h5>Purpose</h5>
-            <p>We aim to reduce long queues, improve student convenience, and keep every document request clearly organized.</p>
-          </div>
-        </div>
-      </div>
-    </div>`;
+function confirmCSVImport(){
+csvPendingRows.forEach(r=>{r.id=nextStudentId++;students.push(r)});
+addLog('Imported '+csvPendingRows.length+' students via CSV','create');
+csvPendingRows=[];
+closeModal();showToast(students.length+' students total after import');renderPage();
 }
 
-function renderOrgChart(){
-  page().innerHTML = `
-    <div class="panel">
-      <h3 class="section-title">Organizational Chart</h3>
-      <div class="org-chart">
-        <div class="org-level">
-          <div class="org-node"><strong>Registrar</strong><div class="muted">Registrar Admin</div></div>
-        </div>
-        <div class="org-level">
-          <div class="org-node"><strong>Assistant Registrar</strong><div class="muted">Asst. Registrar</div></div>
-          <div class="org-node"><strong>Records Officer</strong><div class="muted">Records &amp; Transcripts</div></div>
-          <div class="org-node"><strong>Finance / Cashier</strong><div class="muted">Payments</div></div>
-        </div>
-        <div class="org-level">
-          <div class="org-node"><strong>Clerk</strong><div class="muted">Document Processing</div></div>
-          <div class="org-node"><strong>Clerk II</strong><div class="muted">Filing</div></div>
-          <div class="org-node"><strong>Student Assistants</strong><div class="muted">Counter Support</div></div>
-        </div>
-      </div>
-      <p class="muted" style="margin-top:.6rem;">This chart is a simplified view for the registrar office in this prototype.</p>
-    </div>`;
-}
+// ===== PAYMENTS PAGE =====
+function paymentsPage(){const filtered=currentRole==='student'?payments.filter(p=>p.student==='Maria Santos'):payments;
+return `<div class="bg-white rounded-xl p-5 shadow-sm"><div class="flex items-center justify-between mb-4"><h3 class="font-semibold text-sm">Payments</h3></div><div class="overflow-x-auto"><table><thead><tr><th>ID</th><th>Request</th>${currentRole==='admin'?'<th>Student</th>':''}<th>Amount</th><th>Reference</th><th>Status</th>${currentRole==='admin'?'<th>Action</th>':''}</tr></thead><tbody>${filtered.map(p=>`<tr><td>${p.id}</td><td class="text-blue-600 cursor-pointer" onclick="showRequestDetail('${p.request}')">${p.request}</td>${currentRole==='admin'?`<td>${sanitize(p.student)}</td>`:''}<td>₱${p.amount}</td><td>${sanitize(p.ref)||'—'}</td><td>${badge(p.status)}</td>${currentRole==='admin'?`<td>${p.status==='Pending Verification'?`<button onclick="verifyPayment('${p.id}')" class="text-green-600 text-xs font-medium"><i class="fas fa-check-circle"></i> Verify</button>`:''}</td>`:''}</tr>`).join('')}</tbody></table></div></div>`}
 
-function renderNotifications(){
-  const list = DB.get('dt_notifications',[]);
-  page().innerHTML = `
-    <div class="panel">
-      <div class="panel-head"><h3>Notification Center</h3><button class="btn btn-outline btn-sm" onclick="markAllRead()">Mark all read</button></div>
-      ${list.length ? list.map(n=>`
-        <div class="notif-item ${n.read?'':'unread'}" onclick="readNotif(${n.id})">
-          <div class="notif-icon">${NOTIF_ICON[n.type]||'🔔'}</div>
-          <div><div class="notif-title">${n.title}</div><div class="notif-desc">${n.desc}</div><div class="notif-time">${n.time}</div></div>
-        </div>`).join('') : emptyState('🔔','No notifications','You are all caught up.')}
-    </div>`;
-}
-function readNotif(id){
-  const list = DB.get('dt_notifications',[]);
-  const n = list.find(x=>x.id===id); if(n) n.read=true;
-  DB.set('dt_notifications', list); renderNotifications(); updateBellDot();
-}
-function markAllRead(){
-  const list = DB.get('dt_notifications',[]).map(n=>({...n, read:true}));
-  DB.set('dt_notifications', list); renderNotifications(); updateBellDot();
-}
+function schedulesPage(){const filtered=currentRole==='student'?schedules.filter(s=>s.student==='Maria Santos'):schedules;
+return `<div class="bg-white rounded-xl p-5 shadow-sm"><div class="flex items-center justify-between mb-4"><h3 class="font-semibold text-sm">Pickup Schedules</h3>${currentRole==='admin'?`<button onclick="openAssignSchedule()" class="btn-primary"><i class="fas fa-plus mr-1"></i>Assign</button>`:''}</div><table><thead><tr><th>Request</th>${currentRole==='admin'?'<th>Student</th>':''}<th>Document</th><th>Date</th><th>Time</th><th>Status</th></tr></thead><tbody>${filtered.length?filtered.map(s=>`<tr><td class="text-blue-600 cursor-pointer" onclick="showRequestDetail('${s.request}')">${s.request}</td>${currentRole==='admin'?`<td>${sanitize(s.student)}</td>`:''}<td>${sanitize(s.doc)}</td><td>${s.date}</td><td>${s.time}</td><td>${badge(s.status)}</td></tr>`).join(''):'<tr><td colspan="6" class="empty-state">No schedules yet</td></tr>'}</tbody></table></div>`}
 
-/* ======================= STUDENT: PROFILE ======================= */
-function readFileAsDataUrl(file){
-  return new Promise((resolve, reject)=>{
-    if(!file || !file.type.startsWith('image/')){
-      reject(new Error('Please select a valid image file.'));
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = e => resolve(e.target.result);
-    reader.onerror = ()=> reject(new Error('Unable to read image file.'));
-    reader.readAsDataURL(file);
-  });
-}
+function docTypesPage(){return `<div class="bg-white rounded-xl p-5 shadow-sm"><div class="flex items-center justify-between mb-4"><h3 class="font-semibold text-sm">Document Types</h3>${currentRole==='admin'?`<button onclick="openAddDocType()" class="btn-primary"><i class="fas fa-plus mr-1"></i>Add</button>`:''}</div><table><thead><tr><th>Document</th><th>Fee</th><th>Processing</th><th>Requirements</th></tr></thead><tbody>${docTypes.map(d=>`<tr><td class="font-medium">${sanitize(d.name)}</td><td>₱${d.fee}</td><td>${d.days} days</td><td class="text-gray-500 text-xs">${sanitize(d.reqs)}</td></tr>`).join('')}</tbody></table></div>`}
 
-function renderProfile(){
-  const u = currentUser();
-  page().innerHTML = `
-    <div class="panel profile-panel">
-      <div class="profile-header">
-        ${renderAvatarMarkup(u, 64)}
-        <div><h3>${u.name}</h3><p class="muted">${u.studentId}</p></div>
-      </div>
-      <div id="profile-view">
-        <div class="summary-box profile-summary">
-          <div class="summary-row"><span>Full Name</span><span>${u.name}</span></div>
-          <div class="summary-row"><span>Student ID</span><span>${u.studentId}</span></div>
-          <div class="summary-row"><span>Email</span><span>${u.email}</span></div>
-          <div class="summary-row"><span>Contact Number</span><span>${formatPhone(u.contact)}</span></div>
-        </div>
-        <div class="profile-actions"><button class="btn btn-primary" id="edit-profile-btn">Edit Profile</button></div>
-      </div>
-    </div>`;
-  $('#edit-profile-btn').onclick = ()=>{
-    $('#profile-view').innerHTML = `
-      <div class="form-grid profile-form-grid">
-        <label class="field"><span>Full Name</span><input id="ep-name" value="${u.name}"></label>
-        <label class="field"><span>Email</span><input value="${u.email}" disabled></label>
-        <label class="field"><span>Contact Number</span><input id="ep-contact" value="${formatPhone(u.contact)}"></label>
-        <label class="field full">
-          <span>Profile Picture</span>
-          <input type="file" id="ep-avatar" accept="image/*">
-          ${u.avatar ? `<div style="margin-top:.5rem;"><img src="${u.avatar}" alt="Current profile" style="width:82px;height:82px;border-radius:50%;object-fit:cover;border:1px solid var(--line);" /></div>` : ''}
-        </label>
-      </div>
-      <div class="profile-actions profile-actions-edit">
-        <button class="btn btn-primary" id="save-profile-btn">Save Changes</button>
-        <button class="btn btn-outline" onclick="renderProfile()">Cancel</button>
-      </div>`;
-    bindPhoneInput('#ep-contact');
-    $('#save-profile-btn').onclick = async ()=>{
-      const users = DB.get('dt_users',[]);
-      const uu = users.find(x=>x.email===u.email);
-      const nextContact = normalizePhoneInput($('#ep-contact').value);
-      if(nextContact.length !== 11){
-        toast('Phone number must be exactly 11 digits.');
-        return;
-      }
-      uu.name = $('#ep-name').value.trim()||uu.name; uu.contact=nextContact;
-      const avatarInput = document.getElementById('ep-avatar');
-      if(avatarInput && avatarInput.files && avatarInput.files[0]){
-        try {
-          uu.avatar = await readFileAsDataUrl(avatarInput.files[0]);
-        } catch (error) {
-          toast(error.message || 'Unable to upload image.');
-          return;
-        }
-      }
-      DB.set('dt_users', users);
-      syncStudentProfileToRequests(uu.email, uu);
+function notificationsPage(){return `<div class="bg-white rounded-xl p-5 shadow-sm"><div class="flex items-center justify-between mb-4"><h3 class="font-semibold text-sm">Notifications <span class="text-gray-400 font-normal">(${notifications.filter(n=>!n.read).length} unread)</span></h3><button onclick="markAllRead()" class="text-blue-600 text-xs font-medium hover:underline">Mark all read</button></div><div class="space-y-2">${notifications.map(n=>`<div class="flex items-start gap-3 p-3 rounded-lg border ${n.read?'border-gray-100 bg-white':'border-blue-200 bg-blue-50'} cursor-pointer" onclick="toggleNotifRead(${n.id})"><div class="w-7 h-7 rounded-full ${n.read?'bg-gray-100':'bg-blue-100'} flex items-center justify-center flex-shrink-0"><i class="fas fa-bell text-[11px] ${n.read?'text-gray-400':'text-blue-600'}"></i></div><div class="flex-1"><div class="text-xs">${sanitize(n.msg)}</div><div class="text-[11px] text-gray-400 mt-0.5">${n.time}</div></div>${!n.read?'<span class="w-2 h-2 bg-blue-600 rounded-full mt-2"></span>':''}</div>`).join('')}</div></div>`}
 
-      const session = getSession();
-      if(session && session.email === uu.email){
-        const nextSession = { ...session, name: uu.name };
-        if(localStorage.getItem('dt_session')) DB.set('dt_session', nextSession);
-        else sessionStorage.setItem('dt_session', JSON.stringify(nextSession));
-      }
+function reportsPage(){const st=getStats();return `<div class="bg-white rounded-xl p-5 shadow-sm"><h3 class="font-semibold text-sm mb-4">Reports Summary</h3><div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4"><div class="stat-card border text-center"><div class="text-lg font-bold">${st.total}</div><div class="text-xs text-gray-500">Total</div></div><div class="stat-card border text-center"><div class="text-lg font-bold text-green-600">${st.completed}</div><div class="text-xs text-gray-500">Completed</div></div><div class="stat-card border text-center"><div class="text-lg font-bold text-emerald-600">₱${st.revenue.toLocaleString()}</div><div class="text-xs text-gray-500">Revenue</div></div><div class="stat-card border text-center"><div class="text-lg font-bold text-red-500">${st.rejected+st.cancelled}</div><div class="text-xs text-gray-500">Rejected/Cancelled</div></div></div><div class="flex gap-2"><button onclick="exportCSV()" class="btn-success"><i class="fas fa-file-csv mr-1"></i>Export CSV</button></div></div>`}
 
-      document.getElementById('topbar-avatar').innerHTML = renderAvatarMarkup(uu, 34);
-      document.getElementById('topbar-name').textContent = uu.name;
-      window.dispatchEvent(new Event('dt-profile-updated'));
-      toast('Profile updated.');
-      navigate(CURRENT_PAGE || (ROLE==='admin' ? 'a-dashboard' : 'dashboard'));
-    };
-  };
-}
+// ===== ACTIONS =====
+function approveRequest(id){const r=requests.find(x=>x.id===id);if(!r||r.status!=='Pending')return;r.status='Approved';r.history.push({s:'Approved',t:now(),by:'Admin'});addLog('Approved request '+id,'approve');addNotif('Request '+id+' approved');showToast('Request '+id+' approved');renderPage()}
+function cancelRequest(id){const r=requests.find(x=>x.id===id);if(!r||r.status!=='Pending')return;r.status='Cancelled';r.history.push({s:'Cancelled',t:now(),by:'Admin'});addLog('Cancelled request '+id,'cancel');addNotif('Request '+id+' cancelled');showToast('Request '+id+' cancelled','error');renderPage()}
+function processRequest(id){const r=requests.find(x=>x.id===id);if(!r||r.status!=='Approved'||!r.paid)return;r.status='Processing';r.history.push({s:'Processing',t:now(),by:'Admin'});addLog('Processing '+id,'process');addNotif('Request '+id+' is now processing');showToast('Processing '+id,'info');renderPage()}
+function readyRequest(id){const r=requests.find(x=>x.id===id);if(!r||r.status!=='Processing')return;r.status='Ready for Pickup';r.history.push({s:'Ready for Pickup',t:now(),by:'Admin'});addLog('Marked '+id+' ready','ready');addNotif('Request '+id+' ready for pickup');showToast(id+' ready');renderPage()}
+function releaseRequest(id){const r=requests.find(x=>x.id===id);if(!r||r.status!=='Ready for Pickup')return;r.status='Released';r.history.push({s:'Released',t:now(),by:'Admin'});const sched=schedules.find(s=>s.request===id);if(sched)sched.status='Released';addLog('Released '+id,'release');addNotif(id+' released to '+r.student);showToast(id+' released');renderPage()}
+function verifyPayment(id){const p=payments.find(x=>x.id===id);if(!p||p.status==='Verified')return;p.status='Verified';p.date=now().slice(0,10);const r=requests.find(x=>x.id===p.request);if(r){r.paid=true;r.history.push({s:'Payment Verified',t:now(),by:'Admin'})}addLog('Verified payment '+id,'verify');addNotif('Payment verified for '+p.request);showToast('Payment verified');renderPage()}
+function markAllRead(){notifications.forEach(n=>n.read=true);updateNotifBadge();renderPage()}
+function toggleNotifRead(id){const n=notifications.find(x=>x.id===id);if(n){n.read=!n.read;updateNotifBadge();renderPage()}}
 
-/* ======================= ADMIN: DASHBOARD ======================= */
-function renderAdminDashboard(){
-  const reqs = DB.get('dt_requests',[]);
-  const total=reqs.length, pending=reqs.filter(r=>r.status==='Pending').length,
-    approved=reqs.filter(r=>['Approved','Processing'].includes(r.status)).length,
-    ready=reqs.filter(r=>r.status==='Ready for Pickup').length,
-    revenue=reqs.filter(r=>r.paymentStatus==='Paid').reduce((s,r)=>s+r.fee,0);
-  const recent = [...reqs].sort((a,b)=> (b.dateRequested || '').localeCompare(a.dateRequested || '')).slice(0,6);
-  page().innerHTML = `
-    <div class="grid-cards">
-      <div class="stat-card"><div class="stat-label">Total Requests</div><div class="stat-value">${total}</div></div>
-      <div class="stat-card"><div class="stat-label">Pending</div><div class="stat-value gold">${pending}</div></div>
-      <div class="stat-card"><div class="stat-label">Approved / Processing</div><div class="stat-value">${approved}</div></div>
-      <div class="stat-card"><div class="stat-label">Ready for Pickup</div><div class="stat-value">${ready}</div></div>
-      <div class="stat-card"><div class="stat-label">Total Revenue</div><div class="stat-value">${fmtMoney(revenue)}</div></div>
-    </div>
-    <div class="panel">
-      <div class="panel-head"><h3>Recent Requests</h3><button class="btn btn-outline btn-sm" onclick="navigate('a-requests')">View all</button></div>
-      <div class="table-wrap"><table><thead><tr><th>ID</th><th>Student</th><th>Document</th><th>Date</th><th>Status</th></tr></thead>
-      <tbody>${recent.map(r=>`<tr><td>${r.id}</td><td>${r.studentName}</td><td>${r.document}</td><td>${fmtDate(r.dateRequested)}</td><td>${badge(r.status)}</td></tr>`).join('')}</tbody></table></div>
-    </div>`;
-}
+// ===== MODALS =====
+function showRequestDetail(id){
+const r=requests.find(x=>x.id===id);if(!r)return;
+const p=getPaymentForReq(id);const sched=schedules.find(x=>x.request===id);const locked=isLocked(r);
+openModal(`<div class="flex items-center justify-between mb-4"><h3 class="font-bold text-base">${r.id}</h3><button onclick="closeModal()" class="text-gray-400 hover:text-gray-600 text-lg">&times;</button></div>
+${locked?'<div class="bg-gray-100 text-gray-600 text-xs p-2 rounded mb-3"><i class="fas fa-lock"></i> Read-only</div>':''}
+<div class="grid grid-cols-2 gap-3 text-sm mb-4">
+<div><span class="text-gray-500 text-xs">Student</span><div class="font-medium">${sanitize(r.student)}</div></div>
+<div><span class="text-gray-500 text-xs">Document</span><div class="font-medium">${sanitize(r.doc)}</div></div>
+<div><span class="text-gray-500 text-xs">Date</span><div>${r.date}</div></div>
+<div><span class="text-gray-500 text-xs">Status</span><div>${badge(r.status)}</div></div>
+<div><span class="text-gray-500 text-xs">Fee</span><div>₱${r.fee}</div></div>
+<div><span class="text-gray-500 text-xs">Payment</span><div>${badge(p?p.status:'Payment Pending')}</div></div>
+${sched?`<div class="col-span-2"><span class="text-gray-500 text-xs">Pickup</span><div>${sched.date} at ${sched.time}</div></div>`:''}</div>
+<h4 class="font-semibold text-xs uppercase text-gray-500 mt-4 mb-2">Timeline</h4>
+<div class="space-y-2 text-xs border-l-2 border-gray-200 pl-3 ml-1">${r.history.map(h=>`<div class="relative"><div class="absolute -left-[17px] top-1 w-2.5 h-2.5 rounded-full bg-green-500 border-2 border-white"></div><div class="font-medium">${h.s}</div><div class="text-gray-400">${h.t} · ${sanitize(h.by)}</div></div>`).join('')}</div>
+${!locked&&currentRole==='admin'?`<div class="flex flex-wrap gap-2 border-t pt-3 mt-3">
+${r.status==='Pending'?`<button onclick="closeModal();approveRequest('${r.id}')" class="btn-success">Approve</button><button onclick="closeModal();cancelRequest('${r.id}')" class="btn-danger">Cancel Request</button>`:''}
+${r.status==='Approved'&&r.paid?`<button onclick="closeModal();processRequest('${r.id}')" class="btn-primary">Process</button>`:''}
+${r.status==='Processing'?`<button onclick="closeModal();readyRequest('${r.id}')" class="btn-teal">Mark Ready</button>`:''}
+${r.status==='Ready for Pickup'?`<button onclick="closeModal();releaseRequest('${r.id}')" class="btn-primary">Release</button>`:''}
+<button onclick="closeModal()" class="btn-secondary">Back</button>
+</div>`:`<div class="flex gap-2 mt-4"><button onclick="closeModal()" class="btn-secondary">Back</button></div>`}`)}
 
-/* ======================= ADMIN: REQUESTS ======================= */
-function renderAdminRequests(){
-  const reqs = DB.get('dt_requests',[]);
-  page().innerHTML = `
-    <div class="panel">
-      <h3 class="section-title">Document Requests</h3>
-      <div class="table-wrap"><table><thead><tr>
-        <th>Request ID</th><th>Student</th><th>Document</th><th>Date</th><th>Payment</th><th>Status</th><th>Action</th>
-        </tr></thead><tbody>
-        ${reqs.map(r=>`<tr>
-          <td>${r.id}</td><td>${r.studentName}</td><td>${r.document}</td><td>${fmtDate(r.dateRequested)}</td>
-          <td><span class="badge ${r.paymentStatus==='Paid'?'badge-paid':'badge-unpaid'}">${r.paymentStatus}</span></td>
-          <td>${badge(r.status)}</td>
-          <td style="white-space:nowrap;">
-            <button class="btn btn-outline btn-sm" onclick="adminViewRequest('${r.id}')">View</button>
-          </td>
-        </tr>`).join('')}
-        </tbody></table></div>
-    </div>`;
-}
-function adminViewRequest(id){
-  const r = DB.get('dt_requests',[]).find(x=>x.id===id);
-  const idx = STATUS_FLOW.indexOf(r.status);
-  const nextStatus = idx>=0 && idx<STATUS_FLOW.length-1 ? STATUS_FLOW[idx+1] : null;
-  openModal(`
-    <h3>${r.id} — ${r.document}</h3>
-    <p class="muted" style="margin-top:.3rem;">${r.studentName} (${r.studentEmail})</p>
-    <div class="summary-box" style="margin-top:1rem;">
-      <div class="summary-row"><span>Purpose</span><span>${r.purpose||'—'}</span></div>
-      <div class="summary-row"><span>Quantity</span><span>${r.quantity}</span></div>
-      <div class="summary-row"><span>Payment</span><span>${r.paymentStatus}</span></div>
-      <div class="summary-row"><span>Current Status</span><span>${badge(r.status)}</span></div>
-      <div class="summary-row total"><span>Total</span><span>${fmtMoney(r.fee)}</span></div>
-    </div>
-    <div class="modal-close-row" style="flex-wrap:wrap;">
-      ${r.status!=='Rejected' && r.status!=='Completed' ? `<button class="btn btn-danger" onclick="setReqStatus('${r.id}','Rejected')">Reject</button>`:''}
-      ${nextStatus ? `<button class="btn btn-ok" onclick="setReqStatus('${r.id}','${nextStatus}')">Mark as ${nextStatus}</button>` : ''}
-      <button class="btn btn-outline" onclick="closeModal()">Close</button>
-    </div>`);
-}
-function setReqStatus(id, status){
-  const reqs = DB.get('dt_requests',[]);
-  const r = reqs.find(x=>x.id===id);
-  r.status = status;
-  DB.set('dt_requests', reqs);
-  pushNotification(status==='Rejected'?'Request Rejected':`Request ${status}`, `${r.id} (${r.document}) is now ${status}.`,
-    status==='Ready for Pickup'?'ready':status==='Processing'?'processing':'approved');
-  addLog(currentUser().name, 'Updated status', `${r.id} marked as ${status}`);
-  closeModal(); toast(`${r.id} updated to ${status}.`);
-  renderAdminRequests();
-}
+function openNewRequest(){
+openModal(`<div class="flex items-center justify-between mb-4"><h3 class="font-bold">New Document Request</h3><button onclick="closeModal()" class="text-gray-400 text-lg">&times;</button></div>
+<form id="new-req-form" onsubmit="event.preventDefault();submitRequest()"><div class="space-y-3">
+${currentRole==='admin'?`<div><label class="text-xs font-medium text-gray-600 block mb-1" for="nr-student">Student</label><select id="nr-student" class="border rounded-lg px-3 py-2 text-sm w-full">${students.filter(s=>s.status==='Active').map(s=>`<option value="${sanitize(getFullName(s))}">${sanitize(getFullName(s))}</option>`).join('')}</select></div>`:`<input type="hidden" id="nr-student" value="Maria Santos">`}
+<div><label class="text-xs font-medium text-gray-600 block mb-1" for="nr-doc">Document Type</label><select id="nr-doc" class="border rounded-lg px-3 py-2 text-sm w-full" onchange="updateFeePreview()">${docTypes.map(d=>`<option value="${d.id}">${sanitize(d.name)}</option>`).join('')}</select></div>
+<div><label class="text-xs font-medium text-gray-600 block mb-1" for="nr-purpose">Purpose</label><input id="nr-purpose" type="text" class="border rounded-lg px-3 py-2 text-sm w-full" placeholder="e.g., Employment" maxlength="100"><div id="nr-purpose-err" class="error-msg hidden">Required</div></div>
+<div><label class="text-xs font-medium text-gray-600 block mb-1" for="nr-copies">Copies</label><input id="nr-copies" type="number" value="1" min="1" max="10" class="border rounded-lg px-3 py-2 text-sm w-full" oninput="updateFeePreview()"></div>
+<div id="fee-preview" class="bg-blue-50 p-3 rounded-lg text-xs text-blue-800"><strong>Fee:</strong> ₱${docTypes[0].fee}</div>
+<div class="flex gap-2"><button type="submit" class="btn-primary flex-1">Submit Request</button><button type="button" onclick="closeModal()" class="btn-secondary flex-1">Cancel</button></div>
+</div></form>`)}
 
-/* ======================= ADMIN: STUDENTS ======================= */
-function renderAdminStudents(){
-  const students = DB.get('dt_users',[]).filter(u=>u.role==='student');
-  const reqs = DB.get('dt_requests',[]);
-  page().innerHTML = `
-    <div class="panel">
-      <h3 class="section-title">Students</h3>
-      <div class="table-wrap"><table><thead><tr><th>Name</th><th>Student ID</th><th>Email</th><th>Contact</th><th>Requests</th></tr></thead>
-      <tbody>${students.map(s=>`<tr><td>${s.name}</td><td>${s.studentId}</td><td>${s.email}</td><td>${formatPhone(s.contact)}</td>
-        <td>${reqs.filter(r=>r.studentEmail===s.email).length}</td></tr>`).join('')}</tbody></table></div>
-    </div>`;
-}
+function updateFeePreview(){const docId=parseInt(document.getElementById('nr-doc').value);const copies=Math.max(1,Math.min(10,parseInt(document.getElementById('nr-copies').value)||1));const d=docTypes.find(x=>x.id===docId);if(d)document.getElementById('fee-preview').innerHTML=`<strong>Fee:</strong> ₱${d.fee*copies} (${copies} × ₱${d.fee}) · <strong>Processing:</strong> ${d.days} days`}
 
-/* ======================= ADMIN: PAYMENTS ======================= */
-function renderAdminPayments(){
-  const reqs = DB.get('dt_requests',[]);
-  page().innerHTML = `
-    <div class="panel">
-      <h3 class="section-title">Payments</h3>
-      <div class="table-wrap"><table><thead><tr>
-        <th>Request ID</th><th>Student</th><th>Amount</th><th>Method</th><th>Reference</th><th>Status</th>
-        </tr></thead><tbody>
-        ${reqs.map(r=>`<tr><td>${r.id}</td><td>${r.studentName}</td><td>${fmtMoney(r.fee)}</td><td>${r.paymentMethod||'—'}</td>
-          <td>${r.paymentRef||'—'}</td><td><span class="badge ${r.paymentStatus==='Paid'?'badge-paid':'badge-unpaid'}">${r.paymentStatus}</span></td></tr>`).join('')}
-        </tbody></table></div>
-    </div>`;
-}
+function submitRequest(){
+const purposeEl=document.getElementById('nr-purpose');const purpose=purposeEl.value.trim();
+if(!purpose){purposeEl.classList.add('field-error');document.getElementById('nr-purpose-err').classList.remove('hidden');return}
+const studentVal=document.getElementById('nr-student').value;const docId=parseInt(document.getElementById('nr-doc').value);const copies=Math.max(1,parseInt(document.getElementById('nr-copies').value)||1);const d=docTypes.find(x=>x.id===docId);
+const id=`REQ-2026-${String(nextReqNum++).padStart(3,'0')}`;const fee=d.fee*copies;
+requests.unshift({id,student:studentVal,doc:d.name,date:new Date().toISOString().slice(0,10),status:'Pending',fee,paid:false,history:[{s:'Created',t:now(),by:studentVal}]});
+payments.push({id:`PAY-${String(nextPayNum++).padStart(3,'0')}`,request:id,student:studentVal,amount:fee,ref:'',date:'',status:'Payment Pending'});
+addLog('Created '+id,'create',studentVal);addNotif('New request '+id+' submitted');
+closeModal();showToast(id+' submitted!');renderPage()}
 
-/* ======================= ADMIN: PICKUP ======================= */
-function renderAdminPickup(){
-  const reqs = DB.get('dt_requests',[]).filter(r=>r.pickupSlot && r.paymentStatus === 'Paid');
-  const qrRequest = reqs[0] || null;
-  page().innerHTML = `
-    <div class="panel">
-      <h3 class="section-title">Pickup Schedule</h3>
-      ${reqs.length? `<div class="table-wrap"><table><thead><tr><th>Request ID</th><th>Student</th><th>Document</th><th>Date</th><th>Time Window</th></tr></thead>
-      <tbody>${reqs.map(r=>`<tr><td>${r.id}</td><td>${r.studentName}</td><td>${r.document}</td><td>${fmtDate(r.pickupSlot.date)}</td><td>${r.pickupSlot.time}</td></tr>`).join('')}</tbody></table></div>`
-      : emptyState('📅','No scheduled pickups yet','Scheduled pickups will appear here.')}
-    </div>
-    ${qrRequest ? renderQrCard({
-      id: qrRequest.id,
-      documentName: qrRequest.document,
-      status: qrRequest.status,
-      title: 'My QR Codes',
-      subtitle: 'Show these QR codes to the registrar window for verification during release.'
-    }) : ''}`;
-  if(qrRequest) renderQrBoxes();
-}
+function openUploadReceipt(reqId){const r=requests.find(x=>x.id===reqId);if(!r)return;
+openModal(`<div class="flex items-center justify-between mb-4"><h3 class="font-bold">Upload Payment</h3><button onclick="closeModal()" class="text-gray-400 text-lg">&times;</button></div>
+<form onsubmit="event.preventDefault();submitReceipt('${reqId}')"><div class="space-y-3">
+<div class="bg-gray-50 p-3 rounded-lg text-xs"><strong>${reqId}</strong> · ₱${r.fee}</div>
+<div><label class="text-xs font-medium text-gray-600 block mb-1" for="rc-ref">Reference Number</label><input id="rc-ref" type="text" class="border rounded-lg px-3 py-2 text-sm w-full" placeholder="e.g., GCash-12345"><div id="rc-ref-err" class="error-msg hidden">Required</div></div>
+<div class="flex gap-2"><button type="submit" class="btn-primary flex-1">Submit Payment</button><button type="button" onclick="closeModal()" class="btn-secondary flex-1">Cancel</button></div>
+</div></form>`)}
 
-/* ======================= ADMIN: REPORTS ======================= */
-function renderAdminReports(){
-  const reqs = DB.get('dt_requests',[]);
-  const byDoc = {}; Object.keys(FEES).forEach(d=> byDoc[d]=0);
-  reqs.forEach(r=> byDoc[r.document] = (byDoc[r.document]||0)+1);
-  const maxDoc = Math.max(1,...Object.values(byDoc));
-  const pending = reqs.filter(r=>['Pending','Under Review'].includes(r.status)).length;
-  const approved = reqs.filter(r=>['Approved','Processing','Ready for Pickup','Completed'].includes(r.status)).length;
-  const revenue = reqs.filter(r=>r.paymentStatus==='Paid').reduce((s,r)=>s+r.fee,0);
-  const weekly = [8,13,10,17,12,6,4]; const maxW = Math.max(...weekly);
-  const days=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+function submitReceipt(reqId){const refEl=document.getElementById('rc-ref');const ref=refEl.value.trim();if(!ref){refEl.classList.add('field-error');document.getElementById('rc-ref-err').classList.remove('hidden');return}
+const p=payments.find(x=>x.request===reqId);if(p){p.ref=ref;p.status='Pending Verification';p.date=new Date().toISOString().slice(0,10)}
+const r=requests.find(x=>x.id===reqId);if(r)r.history.push({s:'Payment Submitted',t:now(),by:r.student});
+addLog('Payment submitted for '+reqId,'payment',r?r.student:'Student');addNotif('Payment uploaded for '+reqId);
+closeModal();showToast('Payment submitted');renderPage()}
 
-  page().innerHTML = `
-    <div class="grid-cards">
-      <div class="stat-card"><div class="stat-label">Total Requests</div><div class="stat-value">${reqs.length}</div></div>
-      <div class="stat-card"><div class="stat-label">Pending vs Approved</div><div class="stat-value">${pending} / ${approved}</div></div>
-      <div class="stat-card"><div class="stat-label">Total Revenue</div><div class="stat-value gold">${fmtMoney(revenue)}</div></div>
-    </div>
-    <div class="panel">
-      <h3 class="section-title">Requests by Document Type</h3>
-      <div class="bar-chart">${Object.entries(byDoc).map(([k,v])=>`
-        <div class="bar-col"><div class="bar-val">${v}</div><div class="bar-fill" style="height:${(v/maxDoc*100)||2}%;"></div>
-        <div class="bar-label">${k.split(' (')[0]}</div></div>`).join('')}</div>
-    </div>
-    <div class="panel">
-      <h3 class="section-title">Requests This Week</h3>
-      <div class="bar-chart">${weekly.map((v,i)=>`
-        <div class="bar-col"><div class="bar-val">${v}</div><div class="bar-fill" style="height:${v/maxW*100}%;"></div>
-        <div class="bar-label">${days[i]}</div></div>`).join('')}</div>
-    </div>`;
-}
+function openAssignSchedule(){
+const eligible=requests.filter(r=>r.status==='Ready for Pickup'&&!schedules.find(s=>s.request===r.id));
+if(!eligible.length){showToast('No eligible requests','info');return}
+openModal(`<div class="flex items-center justify-between mb-4"><h3 class="font-bold">Assign Schedule</h3><button onclick="closeModal()" class="text-gray-400 text-lg">&times;</button></div>
+<form onsubmit="event.preventDefault();submitSchedule()"><div class="space-y-3">
+<div><label class="text-xs font-medium text-gray-600 block mb-1" for="sc-req">Request</label><select id="sc-req" class="border rounded-lg px-3 py-2 text-sm w-full">${eligible.map(r=>`<option value="${r.id}">${r.id} — ${sanitize(r.student)}</option>`).join('')}</select></div>
+<div><label class="text-xs font-medium text-gray-600 block mb-1" for="sc-date">Date</label><input id="sc-date" type="date" class="border rounded-lg px-3 py-2 text-sm w-full"><div id="sc-date-err" class="error-msg hidden">Required</div></div>
+<div><label class="text-xs font-medium text-gray-600 block mb-1" for="sc-time">Time</label><select id="sc-time" class="border rounded-lg px-3 py-2 text-sm w-full"><option>9:00 AM</option><option>10:00 AM</option><option>11:00 AM</option><option>1:00 PM</option><option>2:00 PM</option><option>3:00 PM</option></select></div>
+<div class="flex gap-2"><button type="submit" class="btn-primary flex-1">Assign</button><button type="button" onclick="closeModal()" class="btn-secondary flex-1">Cancel</button></div>
+</div></form>`)}
 
-/* ======================= ADMIN: LOGS / SETTINGS ======================= */
-function addLog(user, action, desc){
-  const logs = DB.get('dt_logs',[]);
-  logs.unshift({user, action, when:'Just now', desc});
-  DB.set('dt_logs', logs);
-}
-function renderAdminLogs(){
-  const logs = DB.get('dt_logs',[]);
-  page().innerHTML = `
-    <div class="panel">
-      <h3 class="section-title">Activity Logs</h3>
-      <div class="table-wrap"><table><thead><tr><th>User</th><th>Action</th><th>Date/Time</th><th>Description</th></tr></thead>
-      <tbody>${logs.map(l=>`<tr><td>${l.user}</td><td>${l.action}</td><td>${l.when}</td><td>${l.desc}</td></tr>`).join('')}</tbody></table></div>
-    </div>`;
-}
-function renderAdminSettings(){
-  page().innerHTML = `
-    <div class="panel" style="max-width:560px;">
-      <h3 class="section-title">Settings</h3>
-      <label class="field"><span>Processing Fee — Form 137</span><input value="₱120.00" disabled></label>
-      <label class="field"><span>Processing Fee — Form 138</span><input value="₱110.00" disabled></label>
-      <label class="field"><span>Processing Fee — Certificate of Graduation / Diploma</span><input value="₱150.00" disabled></label>
-      <label class="field"><span>Processing Fee — Certificate of Good Moral Character</span><input value="₱80.00" disabled></label>
-      <label class="field"><span>Processing Fee — Transcript of Records (TOR)</span><input value="₱100.00" disabled></label>
-      <label class="field"><span>Processing Fee — Certificate of Enrollment / Attendance</span><input value="₱60.00" disabled></label>
-      <label class="field"><span>Processing Fee — Certified True Copy (CTC)</span><input value="₱70.00" disabled></label>
-      <label class="field"><span>Office Hours</span><input value="Mon–Fri, 8:00 AM – 5:00 PM" disabled></label>
-      <p class="muted" style="margin-top:.5rem;">Settings are read-only in this prototype.</p>
-    </div>`;
-}
+function submitSchedule(){const reqId=document.getElementById('sc-req').value;const date=document.getElementById('sc-date').value;const time=document.getElementById('sc-time').value;
+if(!date){document.getElementById('sc-date-err').classList.remove('hidden');return}
+const r=requests.find(x=>x.id===reqId);
+schedules.push({request:reqId,student:r.student,doc:r.doc,date,time,status:r.status});
+r.history.push({s:'Pickup Scheduled: '+date+' '+time,t:now(),by:'Admin'});
+addLog('Scheduled '+reqId,'schedule');addNotif('Pickup scheduled for '+reqId);
+closeModal();showToast('Schedule assigned');renderPage()}
 
-/* ======================= INIT ======================= */
-window.navigate = navigate; // expose for inline onclick handlers
-(function init(){
-  const session = getSession();
-  if(session){
-    const u = DB.get('dt_users',[]).find(x=>x.email===session.email);
-    if(u){ enterApp(u); return; }
-  }
-})();
+function openAddDocType(){openModal(`<div class="flex items-center justify-between mb-4"><h3 class="font-bold">Add Document Type</h3><button onclick="closeModal()" class="text-gray-400 text-lg">&times;</button></div>
+<form onsubmit="event.preventDefault();submitDocType()"><div class="space-y-3">
+<div><label class="text-xs font-medium text-gray-600 block mb-1" for="dt-name">Name</label><input id="dt-name" type="text" class="border rounded-lg px-3 py-2 text-sm w-full" maxlength="60"><div id="dt-name-err" class="error-msg hidden">Required</div></div>
+<div><label class="text-xs font-medium text-gray-600 block mb-1" for="dt-fee">Fee (₱)</label><input id="dt-fee" type="number" class="border rounded-lg px-3 py-2 text-sm w-full" min="0"></div>
+<div><label class="text-xs font-medium text-gray-600 block mb-1" for="dt-days">Days</label><input id="dt-days" type="number" class="border rounded-lg px-3 py-2 text-sm w-full" min="1"></div>
+<div><label class="text-xs font-medium text-gray-600 block mb-1" for="dt-reqs">Requirements</label><input id="dt-reqs" type="text" class="border rounded-lg px-3 py-2 text-sm w-full"></div>
+<div class="flex gap-2"><button type="submit" class="btn-primary flex-1">Add</button><button type="button" onclick="closeModal()" class="btn-secondary flex-1">Cancel</button></div>
+</div></form>`)}
+function submitDocType(){const nameEl=document.getElementById('dt-name');const name=nameEl.value.trim();if(!name){nameEl.classList.add('field-error');document.getElementById('dt-name-err').classList.remove('hidden');return}
+docTypes.push({id:docTypes.length+1,name,fee:Math.max(0,parseInt(document.getElementById('dt-fee').value)||0),days:Math.max(1,parseInt(document.getElementById('dt-days').value)||1),reqs:document.getElementById('dt-reqs').value.trim()||'None'});
+addLog('Added doc type: '+name,'create');closeModal();showToast('Added');renderPage()}
+
+function exportCSV(){let csv='ID,Student,Document,Date,Status,Fee,Paid\n';requests.forEach(r=>csv+=`"${r.id}","${r.student}","${r.doc}","${r.date}","${r.status}",${r.fee},${r.paid}\n`);const blob=new Blob([csv],{type:'text/csv'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='drrts_requests.csv';a.click();showToast('Exported')}
+
+// ===== CHARTS =====
+let chart1,chart2;
+function initCharts(){
+const ctx1=document.getElementById('chartRequests');const ctx2=document.getElementById('chartRevenue');
+if(!ctx1||!ctx2)return;
+if(chart1)chart1.destroy();if(chart2)chart2.destroy();
+const st=getStats();
+chart1=new Chart(ctx1,{type:'doughnut',data:{labels:['Pending','Approved','Processing','Ready','Done','Rejected','Cancelled'],datasets:[{data:[st.pending,st.approved,st.processing,st.ready,st.completed,st.rejected,st.cancelled],backgroundColor:['#f59e0b','#10b981','#3b82f6','#14b8a6','#6366f1','#ef4444','#f97316']}]},options:{responsive:true,plugins:{legend:{position:'bottom',labels:{font:{size:11}}}}}});
+const revByDoc={};payments.filter(p=>p.status==='Verified').forEach(p=>{const r=requests.find(x=>x.id===p.request);if(r){revByDoc[r.doc]=(revByDoc[r.doc]||0)+p.amount}});
+chart2=new Chart(ctx2,{type:'bar',data:{labels:Object.keys(revByDoc),datasets:[{label:'₱',data:Object.values(revByDoc),backgroundColor:'#0B5ED7',borderRadius:6}]},options:{responsive:true,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true}}}});
+}
