@@ -19,7 +19,7 @@ let requests=[
 
 let payments=[
 {id:'PAY-001',request:'REQ-2026-001',student:'Maria Santos',amount:150,ref:'GCash-78291',date:'2026-07-28',status:'Verified'},
-{id:'PAY-002',request:'REQ-2026-002',student:'Juan Dela Cruz',amount:50,ref:'GCash-44521',date:'2026-07-29',status:'Verified'},
+{id:'PAY-002',request:'REQ-2026-002',student:'Juan Dela Cruz',amount:50,ref:'GCach-44521',date:'2026-07-29',status:'Verified'},
 {id:'PAY-003',request:'REQ-2026-003',student:'Ana Reyes',amount:500,ref:'',date:'',status:'Payment Pending'},
 {id:'PAY-004',request:'REQ-2026-005',student:'Maria Santos',amount:50,ref:'',date:'',status:'Payment Pending'}
 ];
@@ -194,81 +194,117 @@ return h;
 }
 
 // ===== STUDENTS PAGE =====
+let stuSearchTimer=null;
+
 function getFilteredStudents(){
-let res=[...students];
+  let res=[...students];
+  const q=stuSearch.trim().toLowerCase();
 
-if(stuSearch){
-const q=stuSearch.toLowerCase();
-res=res.filter(s=>
-getFullName(s).toLowerCase().includes(q)||
-s.student_number.toLowerCase().includes(q)||
-s.email.toLowerCase().includes(q)
-);
+  if(q){
+    res=res.filter(s=>{
+      const name=getFullName(s).toLowerCase();
+      const number=String(s.student_number||'').toLowerCase();
+      const email=String(s.email||'').toLowerCase();
+      return name.includes(q)||number.includes(q)||email.includes(q);
+    });
+  }
+
+  if(stuFilterCourse!=='All'){
+    res=res.filter(s=>s.course===stuFilterCourse);
+  }
+
+  if(stuFilterYear!=='All'){
+    res=res.filter(s=>s.year_level===stuFilterYear);
+  }
+
+  if(stuFilterSection!=='All'){
+    res=res.filter(s=>s.section===stuFilterSection);
+  }
+
+  return res;
 }
 
-const hasStudentFilter=stuFilterCourse!=='All'||stuFilterYear!=='All'||stuFilterSection!=='All';
-
-if(stuFilterCourse!=='All')res=res.filter(s=>s.course===stuFilterCourse);
-if(stuFilterYear!=='All')res=res.filter(s=>s.year_level===stuFilterYear);
-if(stuFilterSection!=='All')res=res.filter(s=>s.section===stuFilterSection);
-
-// If the selected filter has no matching students, reset the dropdowns to All.
-// Keep the search term unchanged so name/ID/email search still works normally.
-if(!res.length&&hasStudentFilter){
-stuFilterCourse='All';
-stuFilterYear='All';
-stuFilterSection='All';
-stuPageNum=1;
-
-res=[...students];
-
-if(stuSearch){
-const q=stuSearch.toLowerCase();
-res=res.filter(s=>
-getFullName(s).toLowerCase().includes(q)||
-s.student_number.toLowerCase().includes(q)||
-s.email.toLowerCase().includes(q)
-);
-}
+function resetStudentFilters(){
+  stuFilterCourse='All';
+  stuFilterYear='All';
+  stuFilterSection='All';
+  stuPageNum=1;
 }
 
-return res;
+function applyStudentFilter(type,value){
+  if(type==='course') stuFilterCourse=value;
+  if(type==='year') stuFilterYear=value;
+  if(type==='section') stuFilterSection=value;
+
+  stuPageNum=1;
+
+  // If the selected combination has no students, return the dropdowns to their defaults.
+  if(getFilteredStudents().length===0){
+    resetStudentFilters();
+    showToast('No students matched that filter. Filters reset.','error');
+  }
+
+  renderPage();
+}
+
+function searchStudents(value){
+  stuSearch=value;
+  stuPageNum=1;
+
+  // Do not rebuild the whole page on every keystroke.
+  // This keeps the search box focused and prevents lost characters.
+  clearTimeout(stuSearchTimer);
+  stuSearchTimer=setTimeout(()=>{
+    if(currentPage==='students') renderPage();
+  },180);
 }
 
 function studentsPage(){
-if(currentRole!=='admin')return '<div class="empty-state">Access denied</div>';
-const filtered=getFilteredStudents();
-const totalPages=Math.max(1,Math.ceil(filtered.length/STU_PER_PAGE));
-if(stuPageNum>totalPages)stuPageNum=totalPages;
-const paged=filtered.slice((stuPageNum-1)*STU_PER_PAGE,stuPageNum*STU_PER_PAGE);
-const courses=[...new Set(students.map(s=>s.course))];
-const years=[...new Set(students.map(s=>s.year_level))];
-const sections=[...new Set(students.map(s=>s.section))];
+  if(currentRole!=='admin') return '<div class="empty-state">Access denied</div>';
 
-return `<div class="bg-white rounded-xl p-5 shadow-sm">
-<div class="flex flex-wrap items-center justify-between gap-3 mb-4">
-<h3 class="font-semibold text-sm">Students <span class="text-gray-400 font-normal">(${filtered.length})</span></h3>
-<div class="flex flex-wrap gap-2">
-<input type="text" placeholder="Search name, ID, email..." value="${sanitize(stuSearch)}" class="border rounded-lg px-3 py-1.5 text-xs w-44 focus:outline-none focus:ring-1 focus:ring-blue-400" oninput="stuSearch=this.value;stuPageNum=1;renderPage()">
-<select class="border rounded-lg px-2 py-1.5 text-xs" onchange="stuFilterCourse=this.value;stuPageNum=1;renderPage()"><option value="All">All Courses</option>${courses.map(c=>`<option ${c===stuFilterCourse?'selected':''}>${c}</option>`).join('')}</select>
-<select class="border rounded-lg px-2 py-1.5 text-xs" onchange="stuFilterYear=this.value;stuPageNum=1;renderPage()"><option value="All">All Years</option>${years.map(y=>`<option ${y===stuFilterYear?'selected':''}>${y}</option>`).join('')}</select>
-<select class="border rounded-lg px-2 py-1.5 text-xs" onchange="stuFilterSection=this.value;stuPageNum=1;renderPage()"><option value="All">All Sections</option>${sections.map(sc=>`<option ${sc===stuFilterSection?'selected':''}>${sc}</option>`).join('')}</select>
-</div>
-</div>
-<div class="flex gap-2 mb-4">
-<button onclick="openAddStudent()" class="btn-primary"><i class="fas fa-plus mr-1"></i>Manual Add</button>
-<button onclick="openCSVImport()" class="btn-secondary"><i class="fas fa-file-csv mr-1"></i>CSV Import</button>
-</div>
-<div class="overflow-x-auto"><table><thead><tr><th>Student No.</th><th>Name</th><th>Course</th><th>Year</th><th>Section</th><th>Status</th><th>Actions</th></tr></thead><tbody>${paged.length?paged.map(s=>`<tr>
-<td class="font-medium">${sanitize(s.student_number)}</td>
-<td>${sanitize(getFullName(s))}</td>
-<td>${s.course}</td>
-<td>${s.year_level}</td>
-<td>${s.section}</td>
-<td><span class="badge ${s.status==='Active'?'badge-approved':'badge-rejected'}">${s.status}</span></td>
-<td class="flex gap-1"><button onclick="openViewStudent(${s.id})" class="text-blue-600 text-xs" title="View"><i class="fas fa-eye"></i></button><button onclick="openEditStudent(${s.id})" class="text-yellow-600 text-xs" title="Edit"><i class="fas fa-edit"></i></button><button onclick="confirmDeleteStudent(${s.id})" class="text-red-600 text-xs" title="Delete"><i class="fas fa-trash"></i></button></td>
-</tr>`).join(''):'<tr><td colspan="7" class="empty-state">No students found. Add students manually or import via CSV.</td></tr>'}</tbody></table></div>
-<div class="pagination">${paginationHtml(totalPages,'stuPageNum')}</div></div>`}
+  const filtered=getFilteredStudents();
+  const totalPages=Math.max(1,Math.ceil(filtered.length/STU_PER_PAGE));
+  if(stuPageNum>totalPages) stuPageNum=totalPages;
+
+  const paged=filtered.slice((stuPageNum-1)*STU_PER_PAGE,stuPageNum*STU_PER_PAGE);
+  const courses=[...new Set(students.map(s=>s.course).filter(Boolean))].sort();
+  const years=[...new Set(students.map(s=>s.year_level).filter(Boolean))];
+  const sections=[...new Set(students.map(s=>s.section).filter(Boolean))].sort();
+
+  return `<div class="bg-white rounded-xl p-5 shadow-sm">
+  <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+  <h3 class="font-semibold text-sm">Students <span class="text-gray-400 font-normal">(${filtered.length})</span></h3>
+  <div class="flex flex-wrap gap-2">
+  <input id="student-search" type="text" placeholder="Search name, ID, email..." value="${sanitize(stuSearch)}" class="border rounded-lg px-3 py-1.5 text-xs w-44 focus:outline-none focus:ring-1 focus:ring-blue-400" oninput="searchStudents(this.value)">
+  <select class="border rounded-lg px-2 py-1.5 text-xs" onchange="applyStudentFilter('course',this.value)">
+    <option value="All" ${stuFilterCourse==='All'?'selected':''}>All Courses</option>
+    ${courses.map(c=>`<option value="${sanitize(c)}" ${c===stuFilterCourse?'selected':''}>${sanitize(c)}</option>`).join('')}
+  </select>
+  <select class="border rounded-lg px-2 py-1.5 text-xs" onchange="applyStudentFilter('year',this.value)">
+    <option value="All" ${stuFilterYear==='All'?'selected':''}>All Years</option>
+    ${years.map(y=>`<option value="${sanitize(y)}" ${y===stuFilterYear?'selected':''}>${sanitize(y)}</option>`).join('')}
+  </select>
+  <select class="border rounded-lg px-2 py-1.5 text-xs" onchange="applyStudentFilter('section',this.value)">
+    <option value="All" ${stuFilterSection==='All'?'selected':''}>All Sections</option>
+    ${sections.map(sc=>`<option value="${sanitize(sc)}" ${sc===stuFilterSection?'selected':''}>${sanitize(sc)}</option>`).join('')}
+  </select>
+  </div>
+  </div>
+  <div class="flex gap-2 mb-4">
+  <button onclick="openAddStudent()" class="btn-primary"><i class="fas fa-plus mr-1"></i>Manual Add</button>
+  <button onclick="openCSVImport()" class="btn-secondary"><i class="fas fa-file-csv mr-1"></i>CSV Import</button>
+  </div>
+  <div class="overflow-x-auto"><table><thead><tr><th>Student No.</th><th>Name</th><th>Course</th><th>Year</th><th>Section</th><th>Status</th><th>Actions</th></tr></thead><tbody>${paged.length?paged.map(s=>`<tr>
+  <td class="font-medium">${sanitize(s.student_number)}</td>
+  <td>${sanitize(getFullName(s))}</td>
+  <td>${sanitize(s.course)}</td>
+  <td>${sanitize(s.year_level)}</td>
+  <td>${sanitize(s.section)}</td>
+  <td><span class="badge ${s.status==='Active'?'badge-approved':'badge-rejected'}">${sanitize(s.status)}</span></td>
+  <td class="flex gap-1"><button onclick="openViewStudent(${s.id})" class="text-blue-600 text-xs" title="View"><i class="fas fa-eye"></i></button><button onclick="openEditStudent(${s.id})" class="text-yellow-600 text-xs" title="Edit"><i class="fas fa-edit"></i></button><button onclick="confirmDeleteStudent(${s.id})" class="text-red-600 text-xs" title="Delete"><i class="fas fa-trash"></i></button></td>
+  </tr>`).join(''):'<tr><td colspan="7" class="empty-state">No students found. Add students manually or import via CSV.</td></tr>'}</tbody></table></div>
+  <div class="pagination">${paginationHtml(totalPages,'stuPageNum')}</div></div>`;
+}
 
 function studentFormFields(s){
 const g=s||{student_number:'',firstname:'',middlename:'',lastname:'',suffix:'',course:'BSIT',year_level:'1st',section:'A',gender:'Male',birthdate:'',email:'',contact_number:'',status:'Active'};
