@@ -409,16 +409,9 @@ function renderRequestForm(){
           <div class="field full">
             <span>Document Type</span>
             <div id="rf-selected-docs" class="doc-chip-list"></div>
-            <button type="button" class="btn btn-outline btn-sm" id="rf-add-doc-btn" style="align-self:flex-start;">Add Document</button>
-            <div id="rf-doc-picker" hidden style="margin-top:.6rem;display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;">
-              <select id="rf-doc" style="min-width:240px;">
-                <option value="">Select a document</option>
-                ${Object.keys(FEES).map(d=>`<option value="${d}">${d}</option>`).join('')}
-              </select>
-              <button type="button" class="btn btn-primary btn-sm" id="rf-confirm-doc">Add</button>
-            </div>
+            <button type="button" class="btn btn-outline btn-sm" id="rf-add-doc-btn" style="align-self:flex-start;">+ Add Document</button>
           </div>
-          <label class="field"><span>Quantity</span><input type="number" id="rf-qty" min="1" value="1"></label>
+          <label class="field" id="rf-qty-wrap" hidden><span>Quantity</span><input type="number" id="rf-qty" min="1" value="1"></label>
           <label class="field full"><span>Purpose</span><input type="text" id="rf-purpose" placeholder="e.g. College application" required></label>
           <label class="field"><span>Preferred Pickup Date</span><input type="date" id="rf-date" required></label>
           <label class="field"><span>&nbsp;</span><div class="muted">Processing typically takes 3–5 working days.</div></label>
@@ -437,6 +430,7 @@ function renderRequestForm(){
     const list = $('#rf-selected-docs');
     if(!selectedDocs.length){
       list.innerHTML = '<span class="muted">No document added yet.</span>';
+      $('#rf-qty-wrap').hidden = true;
       return;
     }
     list.innerHTML = selectedDocs.map((doc, idx)=>`
@@ -451,10 +445,12 @@ function renderRequestForm(){
         upd();
       };
     });
+    $('#rf-qty-wrap').hidden = false;
   };
 
   const upd = ()=>{
-    const qty = Math.max(1, parseInt($('#rf-qty').value||1));
+    const qtyInput = $('#rf-qty');
+    const qty = qtyInput ? Math.max(1, parseInt(qtyInput.value||1)) : 1;
     if(!selectedDocs.length){
       $('#rf-summary').innerHTML = `
         <div class="summary-row"><span>Document</span><span>—</span></div>
@@ -475,26 +471,39 @@ function renderRequestForm(){
   };
 
   $('#rf-add-doc-btn').onclick = ()=>{
-    $('#rf-doc-picker').hidden = !$('#rf-doc-picker').hidden;
-    if(!$('#rf-doc-picker').hidden) $('#rf-doc').focus();
+    openModal(`
+      <h3>Add Document</h3>
+      <p class="muted" style="margin-top:.3rem;">Select the document type to add to your request.</p>
+      <label class="field" style="margin-top:1rem;">
+        <span>Document Type</span>
+        <select id="rf-modal-doc">
+          <option value="">Select a document</option>
+          ${Object.keys(FEES).map(d=>`<option value="${d}">${d}</option>`).join('')}
+        </select>
+      </label>
+      <div class="modal-close-row">
+        <button type="button" class="btn btn-outline" onclick="closeModal()">Cancel</button>
+        <button type="button" class="btn btn-primary" id="rf-modal-add">Add Document</button>
+      </div>
+    `);
+    $('#rf-modal-add').onclick = ()=>{
+      const doc = $('#rf-modal-doc').value;
+      if(!doc){ toast('Please select a document type.'); return; }
+      if(!selectedDocs.includes(doc)) selectedDocs.push(doc);
+      closeModal();
+      renderSelectedDocs();
+      upd();
+    };
   };
 
-  $('#rf-confirm-doc').onclick = ()=>{
-    const doc = $('#rf-doc').value;
-    if(!doc){ toast('Please select a document type.'); return; }
-    if(!selectedDocs.includes(doc)) selectedDocs.push(doc);
-    $('#rf-doc').value = '';
-    $('#rf-doc-picker').hidden = true;
-    renderSelectedDocs();
-    upd();
-  };
-
-  $('#rf-qty').oninput = upd; renderSelectedDocs(); upd();
+  $('#rf-qty-wrap').addEventListener('input', upd);
+  renderSelectedDocs(); upd();
 
   $('#req-form').onsubmit = e=>{
     e.preventDefault();
-    const qty=Math.max(1, parseInt($('#rf-qty').value||1));
     if(!selectedDocs.length){ toast('Please add at least one document type.'); return; }
+    const qtyInput = $('#rf-qty');
+    const qty = qtyInput ? Math.max(1, parseInt(qtyInput.value||1)) : 1;
     const u = currentUser();
     const reqs = DB.get('dt_requests',[]);
     const id = 'REQ-'+(10300+reqs.length+Math.floor(Math.random()*90));
