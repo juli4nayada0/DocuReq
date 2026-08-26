@@ -19,7 +19,7 @@ let requests=[
 
 let payments=[
 {id:'PAY-001',request:'REQ-2026-001',student:'Maria Santos',amount:150,ref:'GCash-78291',date:'2026-07-28',status:'Verified'},
-{id:'PAY-002',request:'REQ-2026-002',student:'Juan Dela Cruz',amount:50,ref:'BDO-44521',date:'2026-07-29',status:'Verified'},
+{id:'PAY-002',request:'REQ-2026-002',student:'Juan Dela Cruz',amount:50,ref:'GCash-44521',date:'2026-07-29',status:'Verified'},
 {id:'PAY-003',request:'REQ-2026-003',student:'Ana Reyes',amount:500,ref:'',date:'',status:'Payment Pending'},
 {id:'PAY-004',request:'REQ-2026-005',student:'Maria Santos',amount:50,ref:'',date:'',status:'Payment Pending'}
 ];
@@ -196,10 +196,42 @@ return h;
 // ===== STUDENTS PAGE =====
 function getFilteredStudents(){
 let res=[...students];
-if(stuSearch){const q=stuSearch.toLowerCase();res=res.filter(s=>getFullName(s).toLowerCase().includes(q)||s.student_number.toLowerCase().includes(q)||s.email.toLowerCase().includes(q))}
+
+if(stuSearch){
+const q=stuSearch.toLowerCase();
+res=res.filter(s=>
+getFullName(s).toLowerCase().includes(q)||
+s.student_number.toLowerCase().includes(q)||
+s.email.toLowerCase().includes(q)
+);
+}
+
+const hasStudentFilter=stuFilterCourse!=='All'||stuFilterYear!=='All'||stuFilterSection!=='All';
+
 if(stuFilterCourse!=='All')res=res.filter(s=>s.course===stuFilterCourse);
 if(stuFilterYear!=='All')res=res.filter(s=>s.year_level===stuFilterYear);
 if(stuFilterSection!=='All')res=res.filter(s=>s.section===stuFilterSection);
+
+// If the selected filter has no matching students, reset the dropdowns to All.
+// Keep the search term unchanged so name/ID/email search still works normally.
+if(!res.length&&hasStudentFilter){
+stuFilterCourse='All';
+stuFilterYear='All';
+stuFilterSection='All';
+stuPageNum=1;
+
+res=[...students];
+
+if(stuSearch){
+const q=stuSearch.toLowerCase();
+res=res.filter(s=>
+getFullName(s).toLowerCase().includes(q)||
+s.student_number.toLowerCase().includes(q)||
+s.email.toLowerCase().includes(q)
+);
+}
+}
+
 return res;
 }
 
