@@ -68,30 +68,57 @@ function normalizeDocumentNames(){
   if(changed) DB.set('dt_requests', reqs);
 }
 
+function migrateOldEmails(){
+  const emailMap = { 'student@school.com':'student@gmail.com', 'admin@school.com':'admin@gmail.com' };
+  let changed = false;
+
+  const users = DB.get('dt_users', null);
+  if(users){
+    users.forEach(u=>{ if(emailMap[u.email]){ u.email = emailMap[u.email]; changed = true; } });
+    if(changed) DB.set('dt_users', users);
+  }
+
+  const reqs = DB.get('dt_requests', null);
+  if(reqs){
+    let reqsChanged = false;
+    reqs.forEach(r=>{ if(emailMap[r.studentEmail]){ r.studentEmail = emailMap[r.studentEmail]; reqsChanged = true; } });
+    if(reqsChanged) DB.set('dt_requests', reqs);
+  }
+
+  const session = DB.get('dt_session', null);
+  if(session && emailMap[session.email]){ session.email = emailMap[session.email]; DB.set('dt_session', session); }
+  const sessSession = JSON.parse(sessionStorage.getItem('dt_session')||'null');
+  if(sessSession && emailMap[sessSession.email]){
+    sessSession.email = emailMap[sessSession.email];
+    sessionStorage.setItem('dt_session', JSON.stringify(sessSession));
+  }
+}
+
 function seed(){
+  migrateOldEmails();
   if(!DB.get('dt_users')){
     DB.set('dt_users',[
-      {name:'Maria Santos', studentId:'2024-00456', email:'student@school.com', contact:'09175550123', password:'student123', role:'student'},
-      {name:'Registrar Admin', studentId:'ADMIN-01', email:'admin@school.com', contact:'09175550000', password:'admin123', role:'admin'}
+      {name:'Maria Santos', studentId:'2024-00456', email:'student@gmail.com', contact:'09175550123', password:'student123', role:'student'},
+      {name:'Registrar Admin', studentId:'ADMIN-01', email:'admin@gmail.com', contact:'09175550000', password:'admin123', role:'admin'}
     ]);
   }
   if(!DB.get('dt_requests')){
     const today = new Date();
     const d = n=>{ const x=new Date(today); x.setDate(x.getDate()+n); return x.toISOString().slice(0,10); };
     DB.set('dt_requests',[
-      {id:'REQ-10231', studentEmail:'student@school.com', studentName:'Maria Santos', document:'Certificate of Enrollment / Attendance',
+      {id:'REQ-10231', studentEmail:'student@gmail.com', studentName:'Maria Santos', document:'Certificate of Enrollment / Attendance',
         purpose:'Scholarship application', quantity:1, pickupDate:d(-6), remarks:'', fee:60, status:'Completed',
         paymentStatus:'Paid', paymentMethod:'GCash', paymentRef:'PMT-88213', paymentDate:d(-7), dateRequested:d(-8), pickupSlot:null},
-      {id:'REQ-10255', studentEmail:'student@school.com', studentName:'Maria Santos', document:'Transcript of Records (TOR)',
+      {id:'REQ-10255', studentEmail:'student@gmail.com', studentName:'Maria Santos', document:'Transcript of Records (TOR)',
         purpose:'College application', quantity:2, pickupDate:d(3), remarks:'Please print on security paper.', fee:200, status:'Processing',
         paymentStatus:'Paid', paymentMethod:'Over the counter', paymentRef:'PMT-88340', paymentDate:d(-1), dateRequested:d(-2), pickupSlot:{date:d(3),time:'10:00 AM – 11:00 AM'}},
-      {id:'REQ-10270', studentEmail:'juan.delacruz@school.com', studentName:'Juan Dela Cruz', document:'Certificate of Graduation / Diploma',
+      {id:'REQ-10270', studentEmail:'juan.delacruz@gmail.com', studentName:'Juan Dela Cruz', document:'Certificate of Graduation / Diploma',
         purpose:'Employment requirement', quantity:1, pickupDate:d(5), remarks:'', fee:150, status:'Pending',
         paymentStatus:'Unpaid', paymentMethod:'', paymentRef:'', paymentDate:'', dateRequested:d(0), pickupSlot:null},
-      {id:'REQ-10268', studentEmail:'anna.reyes@school.com', studentName:'Anna Reyes', document:'Transcript of Records (TOR)',
+      {id:'REQ-10268', studentEmail:'anna.reyes@gmail.com', studentName:'Anna Reyes', document:'Transcript of Records (TOR)',
         purpose:'Board exam requirement', quantity:1, pickupDate:d(4), remarks:'', fee:100, status:'Under Review',
         paymentStatus:'Paid', paymentMethod:'GCash', paymentRef:'PMT-88401', paymentDate:d(0), dateRequested:d(-1), pickupSlot:null},
-      {id:'REQ-10260', studentEmail:'carlo.tan@school.com', studentName:'Carlo Tan', document:'Certificate of Enrollment / Attendance',
+      {id:'REQ-10260', studentEmail:'carlo.tan@gmail.com', studentName:'Carlo Tan', document:'Certificate of Enrollment / Attendance',
         purpose:'Visa application', quantity:1, pickupDate:d(2), remarks:'', fee:60, status:'Ready for Pickup',
         paymentStatus:'Paid', paymentMethod:'GCash', paymentRef:'PMT-88350', paymentDate:d(-2), dateRequested:d(-3), pickupSlot:{date:d(2),time:'1:00 PM – 2:00 PM'}}
     ]);
