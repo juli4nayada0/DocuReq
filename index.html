@@ -15,9 +15,18 @@
  </head>
  <body data-template-id="__page-root" style="background: rgb(240, 242, 245);">
   <div id="login-screen" class="login-screen">
-   <div class="login-card">
+   <div class="login-layout">
+    <div class="login-visual">
+     <img src="colm-building-2.jpg" alt="School campus building">
+      <div class="login-visual-caption">
+       <span class="login-visual-eyebrow">COLM REGISTRAR</span>
+       <strong>Keep your academic<br>records moving<br>forward.</strong>
+       <span class="login-visual-description">Simple, secure document requests for the College of Our Lady of Mercy of Pulilan.</span>
+      </div>
+    </div>
+    <div class="login-card">
     <div class="text-center mb-6">
-     <div class="w-14 h-14 bg-blue-600 rounded-xl flex items-center justify-center mx-auto mb-3">
+      <div class="login-brand-mark w-14 h-14 bg-green-600 rounded-xl flex items-center justify-center mx-auto mb-3">
       <i class="fas fa-graduation-cap text-white text-xl"></i>
      </div>
      <h1 data-template-id="login-title" class="canva-text font-bold text-gray-800" style="color: rgb(31, 41, 55); font-weight: 700; font-style: normal; font-size: 22px;">COLM Login</h1>
@@ -25,16 +34,17 @@
     </div>
     <form id="login-form" onsubmit="event.preventDefault();handleLogin()">
      <div class="mb-4">
-      <label class="text-xs font-medium text-gray-600 block mb-1" for="login-user">Username</label><input id="login-user" type="text" class="border rounded-lg px-3 py-2.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-blue-400" placeholder="Enter username" autocomplete="username">
+      <label class="text-xs font-medium text-gray-600 block mb-1" for="login-user">Username</label><input id="login-user" type="text" class="border rounded-lg px-3 py-2.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-green-400" placeholder="Enter username" autocomplete="username">
      </div>
      <div class="mb-4">
-      <label class="text-xs font-medium text-gray-600 block mb-1" for="login-pass">Password</label><input id="login-pass" type="password" class="border rounded-lg px-3 py-2.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-blue-400" placeholder="Enter password" autocomplete="current-password">
+      <label class="text-xs font-medium text-gray-600 block mb-1" for="login-pass">Password</label><input id="login-pass" type="password" class="border rounded-lg px-3 py-2.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-green-400" placeholder="Enter password" autocomplete="current-password">
      </div>
      <div id="login-error" class="hidden text-xs text-red-600 bg-red-50 p-2 rounded-lg mb-3">
       <i class="fas fa-exclamation-circle mr-1"></i>Invalid username or password
-     </div><button type="submit" class="w-full bg-blue-600 text-white py-2.5 rounded-lg text-sm font-semibold hover:bg-blue-700 transition">Login</button>
+    </div><button type="submit" class="login-submit w-full bg-green-600 text-white py-2.5 rounded-lg text-sm font-semibold hover:bg-green-700 transition">Login</button>
     </form>
-   </div>
+    </div>
+     </div>
   </div>
   <div id="app-container" style="display:none">
    <aside class="sidebar" id="sidebar">
@@ -52,8 +62,8 @@
     <nav id="sidebar-nav"></nav>
    </aside>
    <div id="mobile-menu-backdrop" class="mobile-menu-backdrop" onclick="closeMobileMenu()"></div>
-   <div class="main-content">
-    <header class="bg-white px-5 py-3 flex items-center justify-between shadow-sm sticky top-0 z-30">
+  <div class="main-content">
+   <header class="app-header bg-white px-5 py-3 flex items-center justify-between shadow-sm sticky top-0 z-30">
      <div class="flex items-center gap-3"><button id="mobile-menu-toggle" class="mobile-menu-toggle" type="button" aria-label="Open menu" aria-expanded="false" onclick="toggleMobileMenu()"><i class="fas fa-bars"></i></button>
       <h1 data-template-id="page-heading" class="canva-text text-base font-bold text-gray-800" style="color: rgb(31, 41, 55); font-weight: 700; font-style: normal; font-size: 28px;">Document Request &amp; Real-Time Tracking System</h1>
      </div>
@@ -61,10 +71,15 @@
       <div class="relative cursor-pointer" onclick="currentPage='notifications';activateNav('notifications');renderPage()">
        <i class="fas fa-bell text-gray-500"></i><span id="notif-badge" class="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-white text-[10px] flex items-center justify-center">0</span>
       </div>
-      <div id="user-avatar" class="w-7 h-7 bg-blue-600 rounded-full flex items-center justify-center text-white text-[11px] font-bold"></div><button onclick="handleLogout()" class="text-xs text-gray-500 hover:text-red-600 transition ml-1" title="Logout"><i class="fas fa-sign-out-alt"></i> Logout</button>
+      <div id="user-avatar" class="w-7 h-7 bg-blue-600 rounded-full flex items-center justify-center text-white text-[11px] font-bold"></div><span id="user-role-label" class="text-xs font-semibold text-gray-600"></span><button onclick="handleLogout()" class="text-xs text-gray-500 hover:text-red-600 transition ml-1" title="Logout"><i class="fas fa-sign-out-alt"></i> Logout</button>
      </div>
     </header>
     <div class="p-5" id="content-area"></div>
+    <footer class="app-footer">
+     <span>COLM Registrar</span>
+     <span>Document Request &amp; Real-Time Tracking System</span>
+     <span>&copy; 2026 College of Our Lady of Mercy of Pulilan</span>
+    </footer>
    </div>
   </div>
   <div class="modal-overlay" id="modal">
