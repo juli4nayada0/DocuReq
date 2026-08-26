@@ -141,10 +141,7 @@ function toast(msg){
 
 /* ======================= AUTH FLOW ======================= */
 const loginForm = document.getElementById('login-form');
-const signupForm = document.getElementById('signup-form');
 
-document.getElementById('show-signup').onclick = e=>{ e.preventDefault(); loginForm.hidden=true; signupForm.hidden=false; bindPhoneInput('#su-contact'); };
-document.getElementById('show-login').onclick = e=>{ e.preventDefault(); signupForm.hidden=true; loginForm.hidden=false; };
 document.getElementById('forgot-link').onclick = e=>{ e.preventDefault(); toast('Password reset link sent (prototype only).'); };
 
 document.querySelectorAll('.pw-toggle').forEach(btn=>{
@@ -169,51 +166,11 @@ loginForm.onsubmit = e=>{
   enterApp(user);
 };
 
-signupForm.onsubmit = e=>{
-  e.preventDefault();
-  const name=document.getElementById('su-name').value.trim();
-  const sid=document.getElementById('su-id').value.trim();
-  const email=document.getElementById('su-email').value.trim().toLowerCase();
-  const contactRaw=document.getElementById('su-contact').value.trim();
-  const contact = normalizePhoneInput(contactRaw);
-  const pw=document.getElementById('su-password').value;
-  const cpw=document.getElementById('su-confirm').value;
-  const errEl=document.getElementById('signup-error');
-  const okEl=document.getElementById('signup-success');
-  errEl.hidden=true; okEl.hidden=true;
-
-  if(!name||!sid||!email||!contactRaw||!pw||!cpw){ errEl.textContent='Please fill in all fields.'; errEl.hidden=false; return; }
-  if(contact.length!==11){ errEl.textContent='Phone number must be exactly 11 digits.'; errEl.hidden=false; return; }
-  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ errEl.textContent='Please enter a valid email address.'; errEl.hidden=false; return; }
-  if(pw!==cpw){ errEl.textContent='Passwords do not match.'; errEl.hidden=false; return; }
-  if(pw.length<6){ errEl.textContent='Password must be at least 6 characters.'; errEl.hidden=false; return; }
-  const users = DB.get('dt_users',[]);
-  if(users.some(u=>u.email.toLowerCase()===email)){ errEl.textContent='An account with this email already exists.'; errEl.hidden=false; return; }
-
-  users.push({name, studentId:sid, email, contact, password:pw, role:'student'});
-  DB.set('dt_users', users);
-
-  const notifications = DB.get('dt_notifications', []);
-  notifications.unshift({
-    id: Date.now(),
-    title: 'Welcome to DocuTrack',
-    desc: 'Your account is ready. Submit your first document request to begin.',
-    time: 'Just now',
-    read: false,
-    type: 'announce'
-  });
-  DB.set('dt_notifications', notifications);
-
-  okEl.textContent='Account created successfully! You may now log in.'; okEl.hidden=false;
-  signupForm.reset();
-  setTimeout(()=>{ signupForm.hidden=true; loginForm.hidden=false; okEl.hidden=true; }, 1400);
-};
-
 document.getElementById('logout-btn').onclick = ()=>{
   clearSession();
   document.getElementById('app-shell').hidden = true;
   document.getElementById('auth-screen').hidden = false;
-  loginForm.hidden=false; signupForm.hidden=true; loginForm.reset();
+  loginForm.reset();
 };
 
 /* ======================= APP ENTRY / ROUTING ======================= */

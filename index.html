@@ -6,11 +6,11 @@
 <title>DocuTrack — School Registrar System</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=20260820-qr3">
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-<!-- ============ AUTH SCREENS ============ -->
+<!-- ============ AUTH SCREEN ============ -->
 <div id="auth-screen" class="auth-wrap">
   <div class="auth-side">
     <div class="auth-brand">
@@ -23,7 +23,7 @@
       <div class="ledger-row"><span>02</span> Track every step in real time</div>
       <div class="ledger-row"><span>03</span> Get notified the moment it's ready</div>
     </div>
-    <p class="auth-foot">Guiguinto National Vocational High School - Registrar's Office</p>
+    <p class="auth-foot"> COLM- Registrar's Office</p>
   </div>
 
   <div class="auth-main">
@@ -52,50 +52,6 @@
       </div>
 
       <button type="submit" class="btn btn-primary btn-block">Log In</button>
-
-      <div class="demo-hint">
-        <strong>Demo accounts</strong>
-        Student — student@school.com / student123<br>
-        Admin — admin@school.com / admin123
-      </div>
-
-      <p class="switch-line">Don't have an account? <a href="#" id="show-signup">Create Account</a></p>
-    </form>
-
-    <!-- SIGN UP -->
-    <form id="signup-form" class="auth-card" novalidate hidden>
-      <h2>Create your account</h2>
-      <p class="auth-sub">Register with your student information.</p>
-      <div id="signup-error" class="form-error" hidden></div>
-      <div id="signup-success" class="form-success" hidden></div>
-
-      <label class="field">
-        <span>Full Name</span>
-        <input type="text" id="su-name" placeholder="Juan Dela Cruz">
-      </label>
-      <label class="field">
-        <span>Student ID</span>
-        <input type="text" id="su-id" placeholder="2026-00123">
-      </label>
-      <label class="field">
-        <span>Email</span>
-        <input type="email" id="su-email" placeholder="you@gmail.com">
-      </label>
-      <label class="field">
-        <span>Contact Number</span>
-        <input type="text" id="su-contact" placeholder="09XX XXX XXXX">
-      </label>
-      <label class="field">
-        <span>Password</span>
-        <input type="password" id="su-password" placeholder="••••••••">
-      </label>
-      <label class="field">
-        <span>Confirm Password</span>
-        <input type="password" id="su-confirm" placeholder="••••••••">
-      </label>
-
-      <button type="submit" class="btn btn-primary btn-block">Create Account</button>
-      <p class="switch-line">Already registered? <a href="#" id="show-login">Log In</a></p>
     </form>
   </div>
 </div>
@@ -139,6 +95,6 @@
 <div id="toast" class="toast" hidden></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-<script src="docu.js?v=20260820-qr3"></script>
+<script src="docu.js"></script>
 </body>
 </html>
